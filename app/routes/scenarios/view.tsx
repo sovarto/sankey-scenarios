@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm';
 import { Link } from 'react-router';
 import type { Route } from './+types/view';
+import { SankeyDiagram } from '~/components/sankey';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -147,12 +148,44 @@ export default function ViewScenario({ loaderData }: Route.ComponentProps) {
             </header>
 
             <main className='max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8'>
-                {/* Diagram Preview Placeholder - Full Width */}
+                {/* Sankey Diagram */}
                 <section className='bg-white rounded-lg shadow p-6 mb-8'>
                     <h2 className='text-xl font-semibold text-gray-900 mb-4'>Diagram Preview</h2>
-                    <div className='bg-gray-100 rounded-lg h-96 flex items-center justify-center'>
-                        <p className='text-gray-500'>Sankey diagram visualization coming soon...</p>
-                    </div>
+                    {resolvedConnections.length > 0
+                        ? (
+                            <SankeyDiagram
+                                flows={resolvedConnections.map(conn => ({
+                                    source: conn.source,
+                                    target: conn.target,
+                                    value: conn.value
+                                }))}
+                                config={{
+                                    height: 500,
+                                    nodeWidth: 10,
+                                    nodeHeightFactor: 50,
+                                    nodeSpacingFactor: 85,
+                                    flowCurvature: 0.5,
+                                    nodeOpacity: 0.9,
+                                    flowOpacity: 0.45,
+                                    flowColorMode: 'source',
+                                    margin: { top: 20, right: 150, bottom: 20, left: 150 },
+                                    labels: {
+                                        show: true,
+                                        showValues: true,
+                                        fontSize: 12,
+                                        highlightOpacity: 0.75
+                                    }
+                                }}
+                                className='w-full'
+                            />
+                        )
+                        : (
+                            <div className='bg-gray-100 rounded-lg h-64 flex items-center justify-center'>
+                                <p className='text-gray-500'>
+                                    No connections yet. Edit this scenario to add connections.
+                                </p>
+                            </div>
+                        )}
                 </section>
 
                 <div className='grid grid-cols-1 lg:grid-cols-2 gap-8'>
