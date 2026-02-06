@@ -1,0 +1,21 @@
+{
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+
+  "editor.defaultFormatter": "dprint.dprint",
+  "[typescript]": { "editor.defaultFormatter": "dprint.dprint" },
+  "[typescriptreact]": { "editor.defaultFormatter": "dprint.dprint" },
+  "[javascript]": { "editor.defaultFormatter": "dprint.dprint" },
+  "[javascriptreact]": { "editor.defaultFormatter": "dprint.dprint" },
+  "[markdown]": { "editor.defaultFormatter": "dprint.dprint" },
+  "[yaml]": { "editor.defaultFormatter": "dprint.dprint" },
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma"
+  },
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "always"
+  },
+  "eslint.useFlatConfig": true,
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+  "prettier.enable": false
+}

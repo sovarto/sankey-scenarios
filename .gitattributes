@@ -1,0 +1,11 @@
+# Ensure shell scripts always use LF
+*.sh text eol=lf
+
+# (Optional) Normalize other text files
+*.ts text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf

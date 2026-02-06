@@ -1,0 +1,53 @@
+{
+  "typescript": {
+    "lineWidth": 120,
+    "indentWidth": 4,
+    "semiColons": "prefer",
+    "preferSingleLine": true,
+    "objectExpression.preferSingleLine": false,
+    "objectPattern.preferSingleLine": false,
+    "typeLiteral.preferSingleLine": false,
+    "preferHanging": false,
+    "quoteStyle": "preferSingle",
+    "quoteProps": "asNeeded",
+    "singleBodyPosition": "nextLine",
+    "operatorPosition": "nextLine",
+    "arguments.preferSingleLine": false,
+    "ifStatement.singleBodyPosition": "nextLine",
+    "arguments.trailingCommas": "never",
+    "objectExpression.trailingCommas": "never",
+    "module.sortImportDeclarations": "maintain",
+    "importDeclaration.sortNamedImports": "maintain",
+    "importDeclaration.sortTypeOnlyImports": "none",
+    "module.sortExportDeclarations": "maintain",
+    "exportDeclaration.sortNamedExports": "maintain",
+    "exportDeclaration.sortTypeOnlyExports": "none",
+    "importDeclaration.forceSingleLine": true,
+    "importDeclaration.forceMultiLine": "never",
+    "arrayExpression.spaceAround": true,
+    "arrayPattern.spaceAround": true
+  },
+  "json": {},
+  "markdown": {},
+  "toml": {},
+  "malva": {},
+  "markup": {},
+  "yaml": {},
+  "excludes": [
+    "**/node_modules",
+    "**/*-lock.json",
+    "public/81154fe671a4aba847c8ceba274446a1.js",
+    "public/c35b65af6999133003842d58a5337ca3.js",
+    "app/common/assets/cookiescript/*",
+    "other/arrays.ts"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.95.9.wasm",
+    "https://plugins.dprint.dev/json-0.20.0.wasm",
+    "https://plugins.dprint.dev/markdown-0.19.0.wasm",
+    "https://plugins.dprint.dev/toml-0.7.0.wasm",
+    "https://plugins.dprint.dev/g-plane/malva-v0.14.1.wasm",
+    "https://plugins.dprint.dev/g-plane/markup_fmt-v0.23.1.wasm",
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm"
+  ]
+}
