@@ -20,5 +20,11 @@ export default [
         route(':projectId/groups/new', 'routes/groups/new.tsx'),
         route(':projectId/groups/:groupId', 'routes/groups/view.tsx'),
         route(':projectId/groups/:groupId/edit', 'routes/groups/edit.tsx'),
+
+        // Nodes nested under projects
+        route(':projectId/nodes', 'routes/nodes/index.tsx'),
+        route(':projectId/nodes/new', 'routes/nodes/new.tsx'),
+        route(':projectId/nodes/:nodeId', 'routes/nodes/view.tsx'),
+        route(':projectId/nodes/:nodeId/edit', 'routes/nodes/edit.tsx'),
     ]),
 ] satisfies RouteConfig;

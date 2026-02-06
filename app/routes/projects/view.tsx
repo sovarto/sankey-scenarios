@@ -24,6 +24,9 @@ export async function loader({ params }: Route.LoaderArgs) {
             },
             groups: {
                 orderBy: (groups, { desc }) => [ desc(groups.updatedAt) ]
+            },
+            nodes: {
+                orderBy: (nodes, { desc }) => [ desc(nodes.updatedAt) ]
             }
         }
     });
@@ -160,6 +163,59 @@ export default function ViewProject({ loaderData }: Route.ComponentProps) {
                         </Link>
                     </section>
                 </div>
+
+                {/* Nodes Section */}
+                <section className='mt-8'>
+                    <div className='flex items-center justify-between mb-4'>
+                        <h2 className='text-xl font-semibold text-gray-900'>Reusable Nodes</h2>
+                        <Link
+                            to={`/projects/${project.id}/nodes/new`}
+                            className='px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 transition-colors'
+                        >
+                            New Node
+                        </Link>
+                    </div>
+
+                    {project.nodes.length === 0
+                        ? (
+                            <div className='text-center py-12 bg-white rounded-lg shadow'>
+                                <h3 className='text-lg font-medium text-gray-900 mb-2'>No nodes yet</h3>
+                                <p className='text-gray-500 mb-6'>
+                                    Create reusable nodes with values to share across scenarios.
+                                </p>
+                                <Link
+                                    to={`/projects/${project.id}/nodes/new`}
+                                    className='bg-purple-600 text-white px-6 py-3 rounded-md hover:bg-purple-700 transition-colors'
+                                >
+                                    Create Node
+                                </Link>
+                            </div>
+                        )
+                        : (
+                            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+                                {project.nodes.map(node => (
+                                    <Link
+                                        key={node.id}
+                                        to={`/projects/${project.id}/nodes/${node.id}`}
+                                        className='block bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4'
+                                    >
+                                        <div className='flex justify-between items-center'>
+                                            <h3 className='font-semibold text-purple-700'>{node.name}</h3>
+                                            <span className='bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-sm'>
+                                                {node.value}
+                                            </span>
+                                        </div>
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
+                    <Link
+                        to={`/projects/${project.id}/nodes`}
+                        className='inline-block mt-4 text-sm text-purple-600 hover:text-purple-800'
+                    >
+                        View all nodes →
+                    </Link>
+                </section>
             </main>
         </div>
     );

@@ -43,6 +43,11 @@ export async function loader({ params }: Route.LoaderArgs) {
                         }
                     }
                 }
+            },
+            nodeReferences: {
+                with: {
+                    node: true
+                }
             }
         }
     });
@@ -51,12 +56,13 @@ export async function loader({ params }: Route.LoaderArgs) {
         throw new Response('Scenario not found', { status: 404 });
     }
 
-    // Compute the resolved connections (direct + from groups)
+    // Compute the resolved connections (direct + from groups + from nodes)
     const resolvedConnections: Array<{
         source: string;
         target: string;
         value: number;
         fromGroup?: string;
+        fromNode?: string;
     }> = [];
 
     // Add direct connections
@@ -91,6 +97,27 @@ export async function loader({ params }: Route.LoaderArgs) {
         }
     }
 
+    // Add connections from nodes based on direction
+    for (const nodeRef of scenario.nodeReferences) {
+        if (nodeRef.direction === 'source') {
+            // node is the source, connectingNode is the target
+            resolvedConnections.push({
+                source: nodeRef.node.name,
+                target: nodeRef.connectingNode,
+                value: nodeRef.node.value,
+                fromNode: nodeRef.node.name
+            });
+        } else {
+            // connectingNode is the source, node is the target
+            resolvedConnections.push({
+                source: nodeRef.connectingNode,
+                target: nodeRef.node.name,
+                value: nodeRef.node.value,
+                fromNode: nodeRef.node.name
+            });
+        }
+    }
+
     return { project, scenario, resolvedConnections };
 }
 
@@ -120,15 +147,15 @@ export default function ViewScenario({ loaderData }: Route.ComponentProps) {
             </header>
 
             <main className='max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8'>
-                <div className='grid grid-cols-1 lg:grid-cols-2 gap-8'>
-                    {/* Diagram Preview Placeholder */}
-                    <section className='bg-white rounded-lg shadow p-6'>
-                        <h2 className='text-xl font-semibold text-gray-900 mb-4'>Diagram Preview</h2>
-                        <div className='bg-gray-100 rounded-lg h-96 flex items-center justify-center'>
-                            <p className='text-gray-500'>Sankey diagram visualization coming soon...</p>
-                        </div>
-                    </section>
+                {/* Diagram Preview Placeholder - Full Width */}
+                <section className='bg-white rounded-lg shadow p-6 mb-8'>
+                    <h2 className='text-xl font-semibold text-gray-900 mb-4'>Diagram Preview</h2>
+                    <div className='bg-gray-100 rounded-lg h-96 flex items-center justify-center'>
+                        <p className='text-gray-500'>Sankey diagram visualization coming soon...</p>
+                    </div>
+                </section>
 
+                <div className='grid grid-cols-1 lg:grid-cols-2 gap-8'>
                     {/* Resolved Connections */}
                     <section className='bg-white rounded-lg shadow p-6'>
                         <h2 className='text-xl font-semibold text-gray-900 mb-4'>Resolved Connections</h2>
@@ -170,6 +197,12 @@ export default function ViewScenario({ loaderData }: Route.ComponentProps) {
                                                                     {conn.fromGroup}
                                                                 </span>
                                                             )
+                                                            : conn.fromNode
+                                                            ? (
+                                                                <span className='inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-700'>
+                                                                    {conn.fromNode}
+                                                                </span>
+                                                            )
                                                             : <span className='text-gray-400 text-sm'>Direct</span>}
                                                     </td>
                                                 </tr>
@@ -179,68 +212,107 @@ export default function ViewScenario({ loaderData }: Route.ComponentProps) {
                                 </div>
                             )}
                     </section>
-                </div>
 
-                {/* Raw Data */}
-                <section className='mt-8 bg-white rounded-lg shadow p-6'>
-                    <h2 className='text-xl font-semibold text-gray-900 mb-4'>Configuration</h2>
-                    <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-                        <div>
-                            <h3 className='text-sm font-medium text-gray-700 mb-2'>
-                                Direct Connections ({scenario.connections.length})
-                            </h3>
-                            {scenario.connections.length === 0
-                                ? <p className='text-gray-400 text-sm'>None</p>
-                                : (
-                                    <ul className='space-y-1 text-sm'>
-                                        {scenario.connections.map(conn => (
-                                            <li key={conn.id} className='text-gray-600'>
-                                                {conn.source} → {conn.target}: {conn.value}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
+                    {/* Configuration */}
+                    <section className='bg-white rounded-lg shadow p-6'>
+                        <h2 className='text-xl font-semibold text-gray-900 mb-4'>Configuration</h2>
+                        <div className='space-y-6'>
+                            <div>
+                                <h3 className='text-sm font-medium text-gray-700 mb-2'>
+                                    Direct Connections ({scenario.connections.length})
+                                </h3>
+                                {scenario.connections.length === 0
+                                    ? <p className='text-gray-400 text-sm'>None</p>
+                                    : (
+                                        <ul className='space-y-1 text-sm'>
+                                            {scenario.connections.map(conn => (
+                                                <li key={conn.id} className='text-gray-600'>
+                                                    {conn.source} → {conn.target}: {conn.value}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                            </div>
+                            <div>
+                                <h3 className='text-sm font-medium text-gray-700 mb-2'>
+                                    Group References ({scenario.groupReferences.length})
+                                </h3>
+                                {scenario.groupReferences.length === 0
+                                    ? <p className='text-gray-400 text-sm'>None</p>
+                                    : (
+                                        <ul className='space-y-1 text-sm'>
+                                            {scenario.groupReferences.map(ref => (
+                                                <li key={ref.id} className='text-gray-600'>
+                                                    {ref.direction === 'source'
+                                                        ? (
+                                                            <>
+                                                                {ref.connectingNode} →{' '}
+                                                                <Link
+                                                                    to={`/groups/${ref.group.id}`}
+                                                                    className='text-green-600 hover:text-green-800'
+                                                                >
+                                                                    [{ref.group.name}]
+                                                                </Link>
+                                                            </>
+                                                        )
+                                                        : (
+                                                            <>
+                                                                <Link
+                                                                    to={`/groups/${ref.group.id}`}
+                                                                    className='text-green-600 hover:text-green-800'
+                                                                >
+                                                                    [{ref.group.name}]
+                                                                </Link>{' '}
+                                                                → {ref.connectingNode}
+                                                            </>
+                                                        )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                            </div>
+                            <div>
+                                <h3 className='text-sm font-medium text-gray-700 mb-2'>
+                                    Node References ({scenario.nodeReferences.length})
+                                </h3>
+                                {scenario.nodeReferences.length === 0
+                                    ? <p className='text-gray-400 text-sm'>None</p>
+                                    : (
+                                        <ul className='space-y-1 text-sm'>
+                                            {scenario.nodeReferences.map(ref => (
+                                                <li key={ref.id} className='text-gray-600'>
+                                                    {ref.direction === 'source'
+                                                        ? (
+                                                            <>
+                                                                <Link
+                                                                    to={`/projects/${project.id}/nodes/${ref.node.id}`}
+                                                                    className='text-purple-600 hover:text-purple-800'
+                                                                >
+                                                                    {ref.node.name}
+                                                                </Link>{' '}
+                                                                ({ref.node.value}) → {ref.connectingNode}
+                                                            </>
+                                                        )
+                                                        : (
+                                                            <>
+                                                                {ref.connectingNode} →{' '}
+                                                                <Link
+                                                                    to={`/projects/${project.id}/nodes/${ref.node.id}`}
+                                                                    className='text-purple-600 hover:text-purple-800'
+                                                                >
+                                                                    {ref.node.name}
+                                                                </Link>{' '}
+                                                                ({ref.node.value})
+                                                            </>
+                                                        )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                            </div>
                         </div>
-                        <div>
-                            <h3 className='text-sm font-medium text-gray-700 mb-2'>
-                                Group References ({scenario.groupReferences.length})
-                            </h3>
-                            {scenario.groupReferences.length === 0
-                                ? <p className='text-gray-400 text-sm'>None</p>
-                                : (
-                                    <ul className='space-y-1 text-sm'>
-                                        {scenario.groupReferences.map(ref => (
-                                            <li key={ref.id} className='text-gray-600'>
-                                                {ref.direction === 'source'
-                                                    ? (
-                                                        <>
-                                                            {ref.connectingNode} →{' '}
-                                                            <Link
-                                                                to={`/groups/${ref.group.id}`}
-                                                                className='text-green-600 hover:text-green-800'
-                                                            >
-                                                                [{ref.group.name}]
-                                                            </Link>
-                                                        </>
-                                                    )
-                                                    : (
-                                                        <>
-                                                            <Link
-                                                                to={`/groups/${ref.group.id}`}
-                                                                className='text-green-600 hover:text-green-800'
-                                                            >
-                                                                [{ref.group.name}]
-                                                            </Link>{' '}
-                                                            → {ref.connectingNode}
-                                                        </>
-                                                    )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                        </div>
-                    </div>
-                </section>
+                    </section>
+                </div>
             </main>
         </div>
     );

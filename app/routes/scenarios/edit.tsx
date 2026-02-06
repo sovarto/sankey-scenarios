@@ -42,6 +42,13 @@ export async function loader({ params }: Route.LoaderArgs) {
                         columns: { id: true, name: true }
                     }
                 }
+            },
+            nodeReferences: {
+                with: {
+                    node: {
+                        columns: { id: true, name: true, value: true }
+                    }
+                }
             }
         }
     });
@@ -57,7 +64,14 @@ export async function loader({ params }: Route.LoaderArgs) {
         orderBy: (groups, { asc }) => [ asc(groups.name) ]
     });
 
-    return { project, scenario, groups };
+    // Get all available nodes for this project
+    const nodes = await db.query.nodes.findMany({
+        where: eq(schema.nodes.projectId, projectId),
+        columns: { id: true, name: true, value: true },
+        orderBy: (nodes, { asc }) => [ asc(nodes.name) ]
+    });
+
+    return { project, scenario, groups, nodes };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -159,13 +173,43 @@ export async function action({ request, params }: Route.ActionArgs) {
         }
     }
 
+    if (intent === 'add-node-reference') {
+        const nodeId = formData.get('nodeId');
+        const connectingNode = formData.get('connectingNode');
+        const direction = formData.get('direction');
+
+        if (
+            typeof nodeId !== 'string'
+            || typeof connectingNode !== 'string'
+            || !connectingNode.trim()
+            || typeof direction !== 'string'
+        ) {
+            return { error: 'Node, connecting node, and direction are required' };
+        }
+
+        await db.insert(schema.scenarioNodes).values({
+            scenarioId,
+            nodeId: parseInt(nodeId, 10),
+            connectingNode: connectingNode.trim(),
+            direction: direction as 'source' | 'target'
+        });
+    }
+
+    if (intent === 'delete-node-reference') {
+        const referenceId = formData.get('referenceId');
+        if (typeof referenceId === 'string') {
+            await db.delete(schema.scenarioNodes).where(eq(schema.scenarioNodes.id, parseInt(referenceId, 10)));
+        }
+    }
+
     return { success: true };
 }
 
 export default function EditScenario({ loaderData, actionData }: Route.ComponentProps) {
-    const { project, scenario, groups } = loaderData;
+    const { project, scenario, groups, nodes } = loaderData;
     const [ showAddConnection, setShowAddConnection ] = useState(false);
     const [ showAddGroupRef, setShowAddGroupRef ] = useState(false);
+    const [ showAddNodeRef, setShowAddNodeRef ] = useState(false);
 
     return (
         <div className='min-h-screen bg-gray-50'>
@@ -430,6 +474,137 @@ export default function EditScenario({ loaderData, actionData }: Route.Component
                                         </span>
                                         <Form method='post'>
                                             <input type='hidden' name='intent' value='delete-group-reference' />
+                                            <input type='hidden' name='referenceId' value={ref.id} />
+                                            <button type='submit' className='text-red-600 hover:text-red-800 text-sm'>
+                                                Remove
+                                            </button>
+                                        </Form>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                </section>
+
+                {/* Node References */}
+                <section className='bg-white rounded-lg shadow p-6'>
+                    <div className='flex items-center justify-between mb-4'>
+                        <h2 className='text-xl font-semibold text-gray-900'>Node References</h2>
+                        <button
+                            type='button'
+                            onClick={() => setShowAddNodeRef(!showAddNodeRef)}
+                            className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm'
+                            disabled={nodes.length === 0}
+                        >
+                            {showAddNodeRef ? 'Cancel' : 'Add Node Reference'}
+                        </button>
+                    </div>
+
+                    {nodes.length === 0 && (
+                        <p className='text-gray-500 text-sm mb-4'>
+                            No nodes available.{' '}
+                            <Link
+                                to={`/projects/${project.id}/nodes/new`}
+                                className='text-purple-600 hover:text-purple-800'
+                            >
+                                Create a node
+                            </Link>{' '}
+                            first.
+                        </p>
+                    )}
+
+                    {showAddNodeRef && nodes.length > 0 && (
+                        <Form method='post' className='mb-6 p-4 bg-gray-50 rounded-md'>
+                            <input type='hidden' name='intent' value='add-node-reference' />
+                            <div className='grid grid-cols-3 gap-4'>
+                                <div>
+                                    <label className='block text-sm font-medium text-gray-700 mb-1'>Node</label>
+                                    <select
+                                        name='nodeId'
+                                        required
+                                        className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
+                                    >
+                                        {nodes.map(node => (
+                                            <option key={node.id} value={node.id}>{node.name} ({node.value})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className='block text-sm font-medium text-gray-700 mb-1'>
+                                        Connecting Node
+                                    </label>
+                                    <input
+                                        type='text'
+                                        name='connectingNode'
+                                        required
+                                        placeholder='Budget'
+                                        className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
+                                    />
+                                </div>
+                                <div>
+                                    <label className='block text-sm font-medium text-gray-700 mb-1'>Direction</label>
+                                    <select
+                                        name='direction'
+                                        required
+                                        className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
+                                    >
+                                        <option value='source'>Node → Target (node is source)</option>
+                                        <option value='target'>Source → Node (node is target)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <p className='text-xs text-gray-500 mt-2'>
+                                <strong>Node → Target:</strong> The reusable node connects TO the connecting node.<br />
+                                <strong>Source → Node:</strong> The connecting node connects TO the reusable node.
+                            </p>
+                            <div className='mt-4 flex justify-end'>
+                                <button
+                                    type='submit'
+                                    className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm'
+                                >
+                                    Add Reference
+                                </button>
+                            </div>
+                        </Form>
+                    )}
+
+                    {scenario.nodeReferences.length === 0
+                        ? <p className='text-gray-500 text-sm'>No node references yet.</p>
+                        : (
+                            <div className='space-y-2'>
+                                {scenario.nodeReferences.map(ref => (
+                                    <div
+                                        key={ref.id}
+                                        className='flex items-center justify-between p-3 bg-gray-50 rounded-md'
+                                    >
+                                        <span className='text-gray-900'>
+                                            {ref.direction === 'source'
+                                                ? (
+                                                    <>
+                                                        <Link
+                                                            to={`/projects/${project.id}/nodes/${ref.node.id}`}
+                                                            className='text-purple-600 hover:text-purple-800 font-medium'
+                                                        >
+                                                            {ref.node.name}
+                                                        </Link>{' '}
+                                                        <span className='text-gray-500'>({ref.node.value})</span> →{' '}
+                                                        {ref.connectingNode}
+                                                    </>
+                                                )
+                                                : (
+                                                    <>
+                                                        {ref.connectingNode} →{' '}
+                                                        <Link
+                                                            to={`/projects/${project.id}/nodes/${ref.node.id}`}
+                                                            className='text-purple-600 hover:text-purple-800 font-medium'
+                                                        >
+                                                            {ref.node.name}
+                                                        </Link>{' '}
+                                                        <span className='text-gray-500'>({ref.node.value})</span>
+                                                    </>
+                                                )}
+                                        </span>
+                                        <Form method='post'>
+                                            <input type='hidden' name='intent' value='delete-node-reference' />
                                             <input type='hidden' name='referenceId' value={ref.id} />
                                             <button type='submit' className='text-red-600 hover:text-red-800 text-sm'>
                                                 Remove

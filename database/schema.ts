@@ -12,7 +12,8 @@ export const projects = pgTable('projects', {
 
 export const projectsRelations = relations(projects, ({ many }) => ({
     scenarios: many(scenarios),
-    groups: many(groups)
+    groups: many(groups),
+    nodes: many(nodes)
 }));
 
 // Scenarios - each scenario is a diagram belonging to a project
@@ -31,7 +32,8 @@ export const scenariosRelations = relations(scenarios, ({ one, many }) => ({
         references: [ projects.id ]
     }),
     connections: many(connections),
-    groupReferences: many(scenarioGroups)
+    groupReferences: many(scenarioGroups),
+    nodeReferences: many(scenarioNodes)
 }));
 
 // Groups - reusable connection templates within a project
@@ -96,5 +98,47 @@ export const scenarioGroupsRelations = relations(scenarioGroups, ({ one }) => ({
     group: one(groups, {
         fields: [ scenarioGroups.groupId ],
         references: [ groups.id ]
+    })
+}));
+
+// Nodes - reusable single nodes with a name and value within a project
+export const nodes = pgTable('nodes', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    projectId: integer().notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    name: varchar({ length: 255 }).notNull(),
+    value: real().notNull(),
+    description: text(),
+    createdAt: timestamp().defaultNow().notNull(),
+    updatedAt: timestamp().defaultNow().notNull()
+});
+
+export const nodesRelations = relations(nodes, ({ one, many }) => ({
+    project: one(projects, {
+        fields: [ nodes.projectId ],
+        references: [ projects.id ]
+    }),
+    scenarioReferences: many(scenarioNodes)
+}));
+
+// Junction table: links scenarios to nodes they use
+// connectingNode is what this node connects TO or FROM
+// direction: "source" means this node is the source (node → connectingNode)
+// direction: "target" means this node is the target (connectingNode → node)
+export const scenarioNodes = pgTable('scenario_nodes', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    scenarioId: integer().notNull().references(() => scenarios.id, { onDelete: 'cascade' }),
+    nodeId: integer().notNull().references(() => nodes.id, { onDelete: 'cascade' }),
+    connectingNode: varchar({ length: 255 }).notNull(),
+    direction: varchar({ length: 10 }).notNull().default('target') // 'source' or 'target'
+});
+
+export const scenarioNodesRelations = relations(scenarioNodes, ({ one }) => ({
+    scenario: one(scenarios, {
+        fields: [ scenarioNodes.scenarioId ],
+        references: [ scenarios.id ]
+    }),
+    node: one(nodes, {
+        fields: [ scenarioNodes.nodeId ],
+        references: [ nodes.id ]
     })
 }));
