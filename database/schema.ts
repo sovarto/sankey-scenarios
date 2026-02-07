@@ -13,6 +13,9 @@ export const users = pgTable('users', {
     name: varchar({ length: 255 }).notNull(),
     // Status: 'pending' (awaiting admin approval), 'active', 'blocked'
     status: varchar({ length: 20 }).notNull().default('pending'),
+    // Locale preferences (BCP 47 language tags, e.g., 'en-US', 'de-DE')
+    displayLocale: varchar({ length: 35 }), // For UI language
+    regionalLocale: varchar({ length: 35 }), // For number/date formatting
     // For password reset
     resetToken: varchar({ length: 255 }),
     resetTokenExpiresAt: timestamp(),

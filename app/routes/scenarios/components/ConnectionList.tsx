@@ -11,6 +11,7 @@ export function ConnectionList({
     localNodes,
     onDelete,
     existingPlaceholders,
+    locale,
 }: {
     rows: ConnectionRowData[];
     projectId: number;
@@ -19,6 +20,7 @@ export function ConnectionList({
     localNodes: Array<{ id: number; name: string }>;
     onDelete: (row: ConnectionRowData) => void;
     existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
+    locale?: string | null;
 }) {
     const [ items, setItems ] = useState(rows);
     const [ draggedIndex, setDraggedIndex ] = useState<number | null>(null);
@@ -91,6 +93,7 @@ export function ConnectionList({
                     onDragOver={e => handleDragOver(e, index)}
                     onDragEnd={handleDragEnd}
                     existingPlaceholders={existingPlaceholders}
+                    locale={locale}
                 />
             ))}
         </div>

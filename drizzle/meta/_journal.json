@@ -85,6 +85,13 @@
       "when": 1770468491991,
       "tag": "0011_flat_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1770471015570,
+      "tag": "0012_mushy_vulture",
+      "breakpoints": true
     }
   ]
 }

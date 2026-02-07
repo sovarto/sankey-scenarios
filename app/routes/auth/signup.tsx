@@ -21,6 +21,8 @@ export async function action({ request }: Route.ActionArgs) {
     const password = formData.get('password');
     const confirmPassword = formData.get('confirmPassword');
     const name = formData.get('name');
+    const displayLocale = formData.get('displayLocale');
+    const regionalLocale = formData.get('regionalLocale');
 
     if (typeof name !== 'string' || !name.trim()) {
         return { error: 'Name is required' };
@@ -42,7 +44,10 @@ export async function action({ request }: Route.ActionArgs) {
         return { error: 'Passwords do not match' };
     }
 
-    const result = await signup(email, password, name.trim());
+    const result = await signup(email, password, name.trim(), {
+        displayLocale: typeof displayLocale === 'string' ? displayLocale : undefined,
+        regionalLocale: typeof regionalLocale === 'string' ? regionalLocale : undefined
+    });
 
     if (!result.success) {
         return { error: result.error };
@@ -85,6 +90,9 @@ export default function Signup({ actionData }: Route.ComponentProps) {
         );
     }
 
+    // Get browser locale for prefilling - will be captured on mount
+    const browserLanguage = typeof navigator !== 'undefined' ? navigator.language : 'en';
+
     return (
         <div className='min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8'>
             <div className='sm:mx-auto sm:w-full sm:max-w-md'>
@@ -98,6 +106,10 @@ export default function Signup({ actionData }: Route.ComponentProps) {
                         {actionData?.error && (
                             <div className='p-4 bg-red-50 text-red-700 rounded-md text-sm'>{actionData.error}</div>
                         )}
+
+                        {/* Hidden fields for locale - prefilled from browser, sent with form */}
+                        <input type='hidden' name='displayLocale' defaultValue={browserLanguage} />
+                        <input type='hidden' name='regionalLocale' defaultValue={browserLanguage} />
 
                         <div>
                             <label htmlFor='name' className='block text-sm font-medium text-gray-700'>Full Name</label>

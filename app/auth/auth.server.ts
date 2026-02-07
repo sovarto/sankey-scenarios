@@ -11,6 +11,8 @@ export type AuthUser = {
     name: string;
     status: string;
     roles: string[];
+    displayLocale: string | null;
+    regionalLocale: string | null;
 };
 
 export async function getCurrentUser(request: Request): Promise<AuthUser | null> {
@@ -29,7 +31,9 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
         email: session.user.email,
         name: session.user.name,
         status: session.user.status,
-        roles: session.user.userRoles.map(ur => ur.role.name)
+        roles: session.user.userRoles.map(ur => ur.role.name),
+        displayLocale: session.user.displayLocale,
+        regionalLocale: session.user.regionalLocale
     };
 }
 
@@ -100,16 +104,17 @@ export async function login(
             email: user.email,
             name: user.name,
             status: user.status,
-            roles: user.userRoles.map(ur => ur.role.name)
+            roles: user.userRoles.map(ur => ur.role.name),
+            displayLocale: user.displayLocale,
+            regionalLocale: user.regionalLocale
         }
     };
 }
 
-export async function signup(
-    email: string,
-    password: string,
-    name: string,
-): Promise<{ success: true; message: string } | { success: false; error: string }> {
+export async function signup(email: string, password: string, name: string, options?: {
+    displayLocale?: string;
+    regionalLocale?: string;
+}): Promise<{ success: true; message: string } | { success: false; error: string }> {
     const db = database();
 
     // Check if email already exists
@@ -131,7 +136,9 @@ export async function signup(
         email: email.toLowerCase(),
         passwordHash,
         name,
-        status: isFirstUser ? 'active' : 'pending'
+        status: isFirstUser ? 'active' : 'pending',
+        displayLocale: options?.displayLocale || null,
+        regionalLocale: options?.regionalLocale || null
     }).returning({ id: schema.users.id });
 
     // Get or create the member role

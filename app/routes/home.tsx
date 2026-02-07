@@ -51,6 +51,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                                     User Management
                                 </Link>
                             )}
+                            <Link to='/settings' className='text-sm text-gray-600 hover:text-gray-900'>Settings</Link>
                             <div className='flex items-center gap-3'>
                                 <span className='text-sm text-gray-600'>{user.name}</span>
                                 <Form action='/logout' method='post'>

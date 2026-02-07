@@ -1,25 +1,59 @@
 import { useState, useMemo } from 'react';
 import { useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
+import { parseLocaleNumber } from './numberUtils';
 import type { ComboboxOption } from './types';
+
+/** Special value keywords for connection types */
+const SPECIAL_VALUES = {
+    auto: [ 'a', 'auto' ] as const,
+    missing: [ '?', 'm', 'missing' ] as const,
+    remaining: [ '*', 'r', 'remaining' ] as const
+};
+
+/** Parse value field to determine connection type and numeric value */
+function parseValueField(
+    value: string,
+    locale?: string,
+): { type: 'regular' | 'auto' | 'missing' | 'remaining'; numericValue: number } {
+    const trimmed = value.trim().toLowerCase();
+
+    if ((SPECIAL_VALUES.auto as readonly string[]).includes(trimmed)) {
+        return { type: 'auto', numericValue: 0 };
+    }
+    if ((SPECIAL_VALUES.missing as readonly string[]).includes(trimmed)) {
+        return { type: 'missing', numericValue: 0 };
+    }
+    if ((SPECIAL_VALUES.remaining as readonly string[]).includes(trimmed)) {
+        return { type: 'remaining', numericValue: 0 };
+    }
+
+    return { type: 'regular', numericValue: parseLocaleNumber(value, locale) };
+}
+
+interface TargetRow {
+    id: number;
+    target: ComboboxOption | null;
+    value: string;
+}
 
 export function AddConnectionForm({
     groups,
     nodes,
     localNodes,
     existingPlaceholders,
+    locale,
 }: {
     groups: Array<{ id: number; name: string }>;
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
     /** Existing placeholder/auto connections to prevent duplicates */
     existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
+    locale?: string | null;
 }) {
     const [ source, setSource ] = useState<ComboboxOption | null>(null);
-    const [ target, setTarget ] = useState<ComboboxOption | null>(null);
-    const [ value, setValue ] = useState('');
+    const [ targetRows, setTargetRows ] = useState<TargetRow[]>([ { id: 1, target: null, value: '' } ]);
     const [ showGroupNode, setShowGroupNode ] = useState(false);
-    const [ placeholderType, setPlaceholderType ] = useState<'none' | 'auto' | 'missing' | 'remaining'>('none');
     const fetcher = useFetcher();
 
     // Build options list
@@ -62,15 +96,16 @@ export function AddConnectionForm({
         return opts;
     }, [ nodes, groups, localNodes ]);
 
-    // Filter options for each side based on the other's selection
+    // Filter options for source - if any target is a reference, only allow local
     const sourceOptions = useMemo(() => {
-        if (target && target.type !== 'local') {
-            // Only allow local options when target is a reference
+        const hasReferenceTarget = targetRows.some(r => r.target && r.target.type !== 'local');
+        if (hasReferenceTarget) {
             return allOptions.filter(o => o.type === 'local');
         }
         return allOptions;
-    }, [ allOptions, target ]);
+    }, [ allOptions, targetRows ]);
 
+    // Filter options for targets based on source selection
     const targetOptions = useMemo(() => {
         if (source && source.type !== 'local') {
             // Only allow local options when source is a reference
@@ -79,189 +114,230 @@ export function AddConnectionForm({
         return allOptions;
     }, [ allOptions, source ]);
 
-    // Check if placeholder/auto already exists for the selected node
-    const placeholderConflict = useMemo(() => {
-        if (placeholderType === 'none' || !existingPlaceholders) {
-            return null;
+    // Check if we can add multiple targets (only for local source with local targets)
+    const canAddMultipleTargets = useMemo(() => {
+        if (!source || source.type !== 'local') {
+            return false;
         }
+        // All existing targets must be local
+        return targetRows.every(r => !r.target || r.target.type === 'local');
+    }, [ source, targetRows ]);
 
-        if (placeholderType === 'missing' && target?.type === 'local') {
-            const existing = existingPlaceholders.find(
-                p => p.nodeName === target.name && p.type === 'missing'
-            );
-            if (existing) {
-                return `A "Missing" placeholder already exists for "${target.name}"`;
-            }
+    const addTargetRow = () => {
+        setTargetRows(prev => [ ...prev, { id: Math.max(...prev.map(r => r.id)) + 1, target: null, value: '' } ]);
+    };
+
+    const removeTargetRow = (id: number) => {
+        if (targetRows.length > 1) {
+            setTargetRows(prev => prev.filter(r => r.id !== id));
         }
+    };
 
-        // Auto and Remaining are mutually exclusive per source node
-        if ((placeholderType === 'remaining' || placeholderType === 'auto') && source?.type === 'local') {
-            const existingRemaining = existingPlaceholders.find(
-                p => p.nodeName === source.name && p.type === 'remaining'
-            );
-            const existingAuto = existingPlaceholders.find(
-                p => p.nodeName === source.name && p.type === 'auto'
-            );
-            if (existingRemaining) {
-                return `"${source.name}" already has a Remaining connection`;
-            }
-            if (existingAuto) {
-                return `"${source.name}" already has an Auto connection`;
-            }
-        }
+    const updateTargetRow = (id: number, field: 'target' | 'value', value: ComboboxOption | null | string) => {
+        setTargetRows(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
+    };
 
-        return null;
-    }, [ placeholderType, source, target, existingPlaceholders ]);
-
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!source || !target || placeholderConflict) {
+        if (!source) {
             return;
         }
 
-        const formData: Record<string, string> = {
-            intent: 'add-connection',
-            sourceType: source.type,
-            targetType: target.type,
-            source: source.name,
-            target: target.name
-        };
-
-        if (source.type === 'node' && source.id) {
-            formData.sourceRefId = source.id.toString();
-        } else if (source.type === 'group' && source.id) {
-            formData.sourceRefId = source.id.toString();
-            formData.showGroupNode = showGroupNode ? '1' : '0';
-        }
-
-        if (target.type === 'node' && target.id) {
-            formData.targetRefId = target.id.toString();
-        } else if (target.type === 'group' && target.id) {
-            formData.targetRefId = target.id.toString();
-            formData.showGroupNode = showGroupNode ? '1' : '0';
-        }
-
-        // Value is only needed for direct connections without placeholder
-        if (source.type === 'local' && target.type === 'local') {
-            if (placeholderType === 'missing' || placeholderType === 'remaining') {
-                formData.placeholderType = placeholderType;
-            } else if (placeholderType === 'auto') {
-                formData.autoValue = '1';
-            } else {
-                formData.value = value;
+        // Get valid rows
+        const validRows = targetRows.filter(row => {
+            if (!row.target) {
+                return false;
             }
+            // For local-to-local, need a value or special keyword
+            if (source.type === 'local' && row.target.type === 'local') {
+                if (row.value === '') {
+                    return false;
+                }
+                const parsed = parseValueField(row.value, locale ?? undefined);
+                // Special types are always valid, regular needs positive number
+                return parsed.type !== 'regular' || parsed.numericValue > 0;
+            }
+            // For references, no value needed
+            return true;
+        });
+
+        if (validRows.length === 0) {
+            return;
         }
 
-        void fetcher.submit(formData, { method: 'post' });
+        // Submit each connection
+        for (const row of validRows) {
+            const formData: Record<string, string> = {
+                intent: 'add-connection',
+                sourceType: source.type,
+                targetType: row.target!.type,
+                source: source.name,
+                target: row.target!.name
+            };
 
-        // Reset form
-        setSource(null);
-        setTarget(null);
-        setValue('');
+            if (source.type === 'node' && source.id) {
+                formData.sourceRefId = source.id.toString();
+            } else if (source.type === 'group' && source.id) {
+                formData.sourceRefId = source.id.toString();
+                formData.showGroupNode = showGroupNode ? '1' : '0';
+            }
+
+            if (row.target!.type === 'node' && row.target!.id) {
+                formData.targetRefId = row.target!.id.toString();
+            } else if (row.target!.type === 'group' && row.target!.id) {
+                formData.targetRefId = row.target!.id.toString();
+                formData.showGroupNode = showGroupNode ? '1' : '0';
+            }
+
+            // Value is only needed for direct connections
+            if (source.type === 'local' && row.target!.type === 'local') {
+                const parsed = parseValueField(row.value, locale ?? undefined);
+                if (parsed.type === 'auto') {
+                    formData.autoValue = '1';
+                } else if (parsed.type === 'missing' || parsed.type === 'remaining') {
+                    formData.placeholderType = parsed.type;
+                } else {
+                    formData.value = parsed.numericValue.toString();
+                }
+            }
+
+            await fetcher.submit(formData, { method: 'post' });
+        }
+
+        // Reset form but keep source for quick additional entries
+        setTargetRows([ { id: 1, target: null, value: '' } ]);
         setShowGroupNode(false);
-        setPlaceholderType('none');
     };
 
-    const isDirectConnection = source?.type === 'local' && target?.type === 'local';
-    const isValueHidden = !isDirectConnection || placeholderType !== 'none';
-    const isGroupRef = source?.type === 'group' || target?.type === 'group';
+    const isGroupRef = source?.type === 'group' || targetRows.some(r => r.target?.type === 'group');
 
-    // Validation - auto and placeholders don't need a value
-    const needsValue = isDirectConnection && placeholderType === 'none';
-    const isValid = source && target && !placeholderConflict
-        && (!needsValue || (value !== '' && parseFloat(value) > 0));
+    // Count valid rows for button text
+    const validRowCount = targetRows.filter(row => {
+        if (!row.target) {
+            return false;
+        }
+        if (source?.type === 'local' && row.target.type === 'local') {
+            if (row.value === '') {
+                return false;
+            }
+            const parsed = parseValueField(row.value, locale ?? undefined);
+            return parsed.type !== 'regular' || parsed.numericValue > 0;
+        }
+        return true;
+    }).length;
+
+    const isValid = source && validRowCount > 0;
 
     return (
         <div className='border-t pt-4'>
             <h3 className='text-sm font-medium text-gray-700 mb-3'>Add Connection</h3>
-            <fetcher.Form onSubmit={handleSubmit} className='space-y-3'>
-                <div className='grid grid-cols-[1fr,auto,1fr] gap-3 items-end'>
-                    {/* Source */}
-                    <div>
-                        <label
-                            className={`text-xs block mb-1 ${
-                                placeholderType === 'missing' ? 'text-red-600 font-medium' : 'text-gray-500'
-                            }`}
-                        >
-                            Source{placeholderType === 'missing' ? ' (Missing)' : ''}
-                        </label>
-                        <NodeCombobox
-                            value={source}
-                            onChange={setSource}
-                            options={sourceOptions}
-                            placeholder='Type or select...'
-                        />
-                    </div>
-
-                    {/* Arrow */}
-                    <span className='text-gray-400 text-xl pb-2'>→</span>
-
-                    {/* Target */}
-                    <div>
-                        <label
-                            className={`text-xs block mb-1 ${
-                                placeholderType === 'remaining' ? 'text-green-600 font-medium' : 'text-gray-500'
-                            }`}
-                        >
-                            Target{placeholderType === 'remaining' ? ' (Remaining)' : ''}
-                        </label>
-                        <NodeCombobox
-                            value={target}
-                            onChange={setTarget}
-                            options={targetOptions}
-                            placeholder='Type or select...'
-                        />
-                    </div>
+            <form onSubmit={handleSubmit} className='space-y-3'>
+                {/* Source */}
+                <div>
+                    <label className='text-xs text-gray-500 block mb-1'>Source</label>
+                    <NodeCombobox
+                        value={source}
+                        onChange={opt => {
+                            setSource(opt);
+                            // Reset to single target when source changes to a reference
+                            if (opt && opt.type !== 'local') {
+                                setTargetRows([ { id: 1, target: null, value: '' } ]);
+                            }
+                        }}
+                        options={sourceOptions}
+                        placeholder='Type or select source...'
+                    />
                 </div>
 
-                {/* Placeholder options - only for local-to-local connections */}
-                {isDirectConnection && (
-                    <div className='flex flex-wrap gap-4'>
-                        <label className='flex items-center gap-2 text-sm text-gray-700'>
-                            <input
-                                type='radio'
-                                name='placeholderType'
-                                checked={placeholderType === 'none'}
-                                onChange={() => setPlaceholderType('none')}
-                                className='text-blue-600 focus:ring-blue-500'
-                            />
-                            Regular
-                        </label>
-                        <label className='flex items-center gap-2 text-sm text-blue-700'>
-                            <input
-                                type='radio'
-                                name='placeholderType'
-                                checked={placeholderType === 'auto'}
-                                onChange={() => setPlaceholderType('auto')}
-                                className='text-blue-600 focus:ring-blue-500'
-                            />
-                            Auto (full source value)
-                        </label>
-                        <label className='flex items-center gap-2 text-sm text-red-700'>
-                            <input
-                                type='radio'
-                                name='placeholderType'
-                                checked={placeholderType === 'missing'}
-                                onChange={() => setPlaceholderType('missing')}
-                                className='text-red-600 focus:ring-red-500'
-                            />
-                            Missing
-                        </label>
-                        <label className='flex items-center gap-2 text-sm text-green-700'>
-                            <input
-                                type='radio'
-                                name='placeholderType'
-                                checked={placeholderType === 'remaining'}
-                                onChange={() => setPlaceholderType('remaining')}
-                                className='text-green-600 focus:ring-green-500'
-                            />
-                            Remaining
-                        </label>
-                    </div>
-                )}
+                {/* Targets */}
+                <div className='space-y-2'>
+                    <label className='text-xs text-gray-500 block'>Target{targetRows.length > 1 ? 's' : ''}</label>
+                    {targetRows.map(row => {
+                        const isLocalToLocal = source?.type === 'local' && row.target?.type === 'local';
+                        const needsValue = isLocalToLocal;
+                        const parsed = row.value ? parseValueField(row.value, locale ?? undefined) : null;
+                        const isSpecialType = parsed && parsed.type !== 'regular';
 
-                {placeholderConflict && <p className='text-xs text-red-600'>{placeholderConflict}</p>}
+                        return (
+                            <div key={row.id} className='flex items-center gap-2'>
+                                <span className='text-gray-400 text-lg'>→</span>
+                                <div className='flex-1'>
+                                    <NodeCombobox
+                                        value={row.target}
+                                        onChange={val => {
+                                            updateTargetRow(row.id, 'target', val);
+                                            // If selecting a reference, reset to single target
+                                            if (val && val.type !== 'local' && targetRows.length > 1) {
+                                                setTargetRows([ { id: row.id, target: val, value: '' } ]);
+                                            }
+                                        }}
+                                        options={targetOptions}
+                                        placeholder='Target...'
+                                    />
+                                </div>
+                                {needsValue && (
+                                    <div className='relative'>
+                                        <input
+                                            type='text'
+                                            inputMode='decimal'
+                                            value={row.value}
+                                            onChange={e => updateTargetRow(row.id, 'value', e.target.value)}
+                                            placeholder='a ? * 123'
+                                            title='Enter: number, "a" (auto), "?" (missing), or "*" (remaining)'
+                                            className={`w-24 px-3 py-2 border rounded-md text-sm ${
+                                                isSpecialType
+                                                    ? parsed.type === 'auto'
+                                                        ? 'border-blue-400 bg-blue-50 text-blue-700'
+                                                        : parsed.type === 'missing'
+                                                        ? 'border-red-400 bg-red-50 text-red-700'
+                                                        : 'border-green-400 bg-green-50 text-green-700'
+                                                    : 'border-gray-300'
+                                            }`}
+                                        />
+                                    </div>
+                                )}
+                                {targetRows.length > 1 && (
+                                    <button
+                                        type='button'
+                                        onClick={() => removeTargetRow(row.id)}
+                                        tabIndex={-1}
+                                        className='p-2 text-gray-400 hover:text-red-600 transition-colors'
+                                        title='Remove'
+                                    >
+                                        <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                                            <path
+                                                strokeLinecap='round'
+                                                strokeLinejoin='round'
+                                                strokeWidth={2}
+                                                d='M6 18L18 6M6 6l12 12'
+                                            />
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Add another target button */}
+                {canAddMultipleTargets && (
+                    <button
+                        type='button'
+                        onClick={addTargetRow}
+                        className='text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1'
+                    >
+                        <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                            <path
+                                strokeLinecap='round'
+                                strokeLinejoin='round'
+                                strokeWidth={2}
+                                d='M12 6v6m0 0v6m0-6h6m-6 0H6'
+                            />
+                        </svg>
+                        Add another target
+                    </button>
+                )}
 
                 {isGroupRef && (
                     <label className='flex items-center gap-2 text-sm text-gray-700'>
@@ -275,25 +351,23 @@ export function AddConnectionForm({
                     </label>
                 )}
 
-                {!isDirectConnection && source && target && (
-                    <p className='text-xs text-gray-500'>
-                        Value comes from the referenced {source.type !== 'local' ? 'node/group' : 'node/group'}.
-                    </p>
+                {source && source.type !== 'local' && targetRows[0]?.target && (
+                    <p className='text-xs text-gray-500'>Value comes from the referenced node/group.</p>
                 )}
 
-                {/* Value - only for regular direct connections */}
-                {isDirectConnection && placeholderType === 'none' && (
-                    <div>
-                        <label className='text-xs text-gray-500 block mb-1'>Value</label>
-                        <input
-                            type='number'
-                            value={value}
-                            onChange={e => setValue(e.target.value)}
-                            placeholder='0'
-                            min='0.01'
-                            step='0.01'
-                            className='w-32 px-3 py-2 border border-gray-300 rounded-md text-sm'
-                        />
+                {/* Value shortcuts hint */}
+                {source?.type === 'local' && targetRows.some(r => r.target?.type === 'local') && (
+                    <div className='text-xs text-gray-500 flex flex-wrap gap-x-3 gap-y-1'>
+                        <span>Value shortcuts:</span>
+                        <span>
+                            <code className='bg-blue-100 text-blue-700 px-1 rounded'>a</code> auto
+                        </span>
+                        <span>
+                            <code className='bg-red-100 text-red-700 px-1 rounded'>?</code> missing
+                        </span>
+                        <span>
+                            <code className='bg-green-100 text-green-700 px-1 rounded'>*</code> remaining
+                        </span>
                     </div>
                 )}
 
@@ -303,9 +377,9 @@ export function AddConnectionForm({
                     disabled={!isValid}
                     className='w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed'
                 >
-                    Add Connection
+                    {validRowCount > 1 ? `Add ${validRowCount} Connections` : 'Add Connection'}
                 </button>
-            </fetcher.Form>
+            </form>
         </div>
     );
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
+import { parseLocaleNumber, formatLocaleNumber } from './numberUtils';
 import type { ComboboxOption, ConnectionRowData } from './types';
 
 interface EditableConnectionRowProps {
@@ -15,6 +16,7 @@ interface EditableConnectionRowProps {
     onDragOver?: (e: React.DragEvent) => void;
     onDragEnd?: () => void;
     existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
+    locale?: string | null;
 }
 
 export function EditableConnectionRow({
@@ -29,6 +31,7 @@ export function EditableConnectionRow({
     onDragOver,
     onDragEnd,
     existingPlaceholders,
+    locale,
 }: EditableConnectionRowProps) {
     const [ editingField, setEditingField ] = useState<'source' | 'target' | 'value' | null>(null);
     const [ editSource, setEditSource ] = useState<ComboboxOption | null>(null);
@@ -243,7 +246,7 @@ export function EditableConnectionRow({
 
     // Save value change
     const handleValueSave = () => {
-        const numValue = parseFloat(editValue);
+        const numValue = parseLocaleNumber(editValue, locale ?? undefined);
         if (!isNaN(numValue) && numValue > 0 && numValue !== displayValue) {
             setDisplayValue(numValue); // Optimistic update
             void fetcher.submit(
@@ -413,7 +416,8 @@ export function EditableConnectionRow({
         if (editingField === 'value') {
             return (
                 <input
-                    type='number'
+                    type='text'
+                    inputMode='decimal'
                     value={editValue}
                     onChange={e => setEditValue(e.target.value)}
                     onBlur={handleValueSave}
@@ -427,8 +431,6 @@ export function EditableConnectionRow({
                     }}
                     onClick={e => e.stopPropagation()}
                     autoFocus
-                    min='0.01'
-                    step='0.01'
                     className='w-20 px-2 py-0.5 border border-blue-300 rounded text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-500'
                 />
             );
@@ -442,7 +444,7 @@ export function EditableConnectionRow({
                 }`}
                 title={canEditValue ? 'Click to change' : undefined}
             >
-                {displayValue}
+                {formatLocaleNumber(displayValue, locale ?? undefined)}
             </span>
         );
     };

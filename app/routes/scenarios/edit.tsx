@@ -22,7 +22,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }
 
     const { user } = await requireProjectOwnership(request, projectId);
-    return loadScenarioView(projectId, scenarioId, user.id);
+    const data = await loadScenarioView(projectId, scenarioId, user.id);
+    return { ...data, userLocale: user.regionalLocale };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -86,7 +87,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function ViewScenario({}: Route.ComponentProps) {
     const loaderData = useLoaderData<typeof loader>();
     const actionData = useActionData<typeof action>();
-    const { project, scenario, resolvedConnections, groups, nodes, existingPlaceholders } = loaderData;
+    const { project, scenario, resolvedConnections, groups, nodes, existingPlaceholders, userLocale } = loaderData;
     const fetcher = useFetcher();
 
     const localNodes = scenario.localNodes;
@@ -203,6 +204,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                         localNodes={localNodes}
                         onDelete={handleDelete}
                         existingPlaceholders={existingPlaceholders}
+                        locale={userLocale}
                     />
 
                     <AddConnectionForm
@@ -210,6 +212,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                         nodes={nodes}
                         localNodes={localNodes}
                         existingPlaceholders={existingPlaceholders}
+                        locale={userLocale}
                     />
                 </section>
 
