@@ -98,17 +98,18 @@ export function computeSankeyLayout(flows: SankeyFlow[], userConfig: SankeyConfi
 
     let nodeIndex = 0;
 
-    function getOrCreateNode(name: string, sourceRow: number): InternalNode {
+    function getOrCreateNode(name: string, sourceRow: number, displayName?: string, nodeColor?: string): InternalNode {
         let node = nodeMap.get(name);
         if (!node) {
+            const nodeDisplayName = displayName || name;
             node = {
                 index: nodeIndex++,
                 name,
-                displayName: name,
-                tipName: name.replace(/\\n/g, ' '),
+                displayName: nodeDisplayName,
+                tipName: nodeDisplayName.replace(/\\n/g, ' '),
                 stage: 0,
                 value: 0,
-                color: colorScale(name.match(/^\s*(\S+)/)?.[1] || name),
+                color: nodeColor || colorScale(nodeDisplayName.match(/^\s*(\S+)/)?.[1] || nodeDisplayName),
                 opacity: cfg.nodeOpacity,
                 x: 0,
                 y: 0,
@@ -128,8 +129,8 @@ export function computeSankeyLayout(flows: SankeyFlow[], userConfig: SankeyConfi
 
     // Create internal flows
     const internalFlows: InternalFlow[] = flows.map((flow, idx) => {
-        const source = getOrCreateNode(flow.source, idx);
-        const target = getOrCreateNode(flow.target, idx + 0.5);
+        const source = getOrCreateNode(flow.source, idx, flow.sourceDisplayName, flow.sourceNodeColor);
+        const target = getOrCreateNode(flow.target, idx + 0.5, flow.targetDisplayName, flow.targetNodeColor);
 
         const internalFlow: InternalFlow = {
             index: idx,

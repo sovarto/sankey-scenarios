@@ -9,6 +9,14 @@ export interface SankeyFlow {
     value: number;
     color?: string;
     opacity?: number;
+    /** Custom display label for source node (if different from source identifier) */
+    sourceDisplayName?: string;
+    /** Custom display label for target node (if different from target identifier) */
+    targetDisplayName?: string;
+    /** Explicit color for source node */
+    sourceNodeColor?: string;
+    /** Explicit color for target node */
+    targetNodeColor?: string;
 }
 
 export interface SankeyNodeConfig {

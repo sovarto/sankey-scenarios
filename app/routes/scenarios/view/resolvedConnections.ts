@@ -5,9 +5,23 @@ export interface ResolvedConnection {
     source: string;
     target: string;
     value: number;
+    color?: string;
+    /** Custom display label for source node */
+    sourceDisplayName?: string;
+    /** Custom display label for target node */
+    targetDisplayName?: string;
+    /** Explicit color for source node */
+    sourceNodeColor?: string;
+    /** Explicit color for target node */
+    targetNodeColor?: string;
     fromGroup?: string;
     fromNode?: string;
 }
+
+/** Color for "Missing" flows (bright red) - when outgoing > incoming */
+const MISSING_COLOR = '#ff0000';
+/** Color for "Remaining" flows (bright green) - when incoming > outgoing */
+const REMAINING_COLOR = '#00cc00';
 
 /**
  * Scenario data returned from loader with all relationships
@@ -177,4 +191,69 @@ function resolveNodeReference(nodeRef: ScenarioWithRelations['nodeReferences'][n
             fromNode: nodeRef.node.name
         } ];
     }
+}
+/**
+ * Add balancing flows for nodes where incoming and outgoing values don't match.
+ * - If incoming > outgoing: add an outgoing flow to "Remaining" (greenish)
+ * - If outgoing > incoming: add an incoming flow from "Missing" (reddish)
+ *
+ * Each Missing/Remaining node is unique per source/target node to avoid merging them all.
+ */
+export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedConnection[] {
+    // Calculate incoming and outgoing totals for each node
+    const nodeBalance = new Map<string, { incoming: number; outgoing: number }>();
+
+    for (const conn of connections) {
+        // Update source node outgoing
+        if (!nodeBalance.has(conn.source)) {
+            nodeBalance.set(conn.source, { incoming: 0, outgoing: 0 });
+        }
+        nodeBalance.get(conn.source)!.outgoing += conn.value;
+
+        // Update target node incoming
+        if (!nodeBalance.has(conn.target)) {
+            nodeBalance.set(conn.target, { incoming: 0, outgoing: 0 });
+        }
+        nodeBalance.get(conn.target)!.incoming += conn.value;
+    }
+
+    // Find nodes that need balancing (exclude pure sources and pure sinks)
+    const balancingFlows: ResolvedConnection[] = [];
+
+    for (const [ nodeName, balance ] of nodeBalance) {
+        // Skip nodes that are already balancing nodes (have _Missing_ or _Remaining_ prefix)
+        if (nodeName.startsWith('_Missing_') || nodeName.startsWith('_Remaining_')) {
+            continue;
+        }
+
+        // Only balance nodes that have both incoming and outgoing connections
+        // (pure sources/sinks don't need balancing)
+        if (balance.incoming > 0 && balance.outgoing > 0) {
+            const diff = balance.incoming - balance.outgoing;
+
+            if (diff > 0) {
+                // More incoming than outgoing - add flow to a unique "Remaining" node
+                balancingFlows.push({
+                    source: nodeName,
+                    target: `_Remaining_${nodeName}`,
+                    targetDisplayName: 'Remaining',
+                    targetNodeColor: REMAINING_COLOR,
+                    value: diff,
+                    color: REMAINING_COLOR
+                });
+            } else if (diff < 0) {
+                // More outgoing than incoming - add flow from a unique "Missing" node
+                balancingFlows.push({
+                    source: `_Missing_${nodeName}`,
+                    sourceDisplayName: 'Missing',
+                    sourceNodeColor: MISSING_COLOR,
+                    target: nodeName,
+                    value: Math.abs(diff),
+                    color: MISSING_COLOR
+                });
+            }
+        }
+    }
+
+    return [ ...connections, ...balancingFlows ];
 }

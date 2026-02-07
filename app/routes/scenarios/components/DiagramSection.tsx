@@ -1,9 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { SankeyDiagram } from '../../../components/sankey';
 
-export function DiagramSection(
-    { resolvedConnections }: { resolvedConnections: Array<{ source: string; target: string; value: number }> },
-) {
+export function DiagramSection({ resolvedConnections }: {
+    resolvedConnections: Array<{
+        source: string;
+        target: string;
+        value: number;
+        color?: string;
+        sourceDisplayName?: string;
+        targetDisplayName?: string;
+        sourceNodeColor?: string;
+        targetNodeColor?: string;
+    }>;
+}) {
     const [ isExpanded, setIsExpanded ] = useState(true);
     const [ height, setHeight ] = useState(500);
     const [ isResizing, setIsResizing ] = useState(false);
@@ -95,7 +104,12 @@ export function DiagramSection(
                         flows={resolvedConnections.map(conn => ({
                             source: conn.source,
                             target: conn.target,
-                            value: conn.value
+                            value: conn.value,
+                            color: conn.color,
+                            sourceDisplayName: conn.sourceDisplayName,
+                            targetDisplayName: conn.targetDisplayName,
+                            sourceNodeColor: conn.sourceNodeColor,
+                            targetNodeColor: conn.targetNodeColor
                         }))}
                         config={{
                             height,
