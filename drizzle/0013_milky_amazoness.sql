@@ -1,0 +1,1 @@
+ALTER TABLE "scenario_groups" ADD COLUMN "subNode" varchar(255);

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber } from './numberUtils';
-import type { ComboboxOption } from './types';
+import type { ComboboxOption, GroupWithConnections } from './types';
 
 /** Special value keywords for connection types */
 const SPECIAL_VALUES = {
@@ -44,7 +44,7 @@ export function AddConnectionForm({
     existingPlaceholders,
     locale,
 }: {
-    groups: Array<{ id: number; name: string }>;
+    groups: GroupWithConnections[];
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
     /** Existing placeholder/auto connections to prevent duplicates */
@@ -52,11 +52,31 @@ export function AddConnectionForm({
     locale?: string | null;
 }) {
     const [ source, setSource ] = useState<ComboboxOption | null>(null);
+    const [ sourceSubNode, setSourceSubNode ] = useState<string>(''); // '' = all, otherwise specific sub-node
     const [ targetRows, setTargetRows ] = useState<TargetRow[]>([ { id: 1, target: null, value: '' } ]);
+    const [ targetSubNode, setTargetSubNode ] = useState<string>(''); // '' = all, otherwise specific sub-node
     const [ showGroupNode, setShowGroupNode ] = useState(false);
     const fetcher = useFetcher();
 
-    // Build options list
+    // Get sub-node options for a group
+    const getGroupSubNodes = (groupId: number): string[] => {
+        const group = groups.find(g => g.id === groupId);
+        if (!group) {
+            return [];
+        }
+        const subNodeNames = new Set<string>();
+        for (const conn of group.connections) {
+            if (conn.source) {
+                subNodeNames.add(conn.source);
+            }
+            if (conn.target) {
+                subNodeNames.add(conn.target);
+            }
+        }
+        return Array.from(subNodeNames).sort();
+    };
+
+    // Build options list (one entry per group, no sub-nodes in main dropdown)
     const allOptions: ComboboxOption[] = useMemo(() => {
         const opts: ComboboxOption[] = [];
 
@@ -71,7 +91,7 @@ export function AddConnectionForm({
             });
         }
 
-        // Group references
+        // Group references - single entry per group
         for (const group of groups) {
             opts.push({
                 type: 'group',
@@ -180,14 +200,48 @@ export function AddConnectionForm({
                 formData.sourceRefId = source.id.toString();
             } else if (source.type === 'group' && source.id) {
                 formData.sourceRefId = source.id.toString();
-                formData.showGroupNode = showGroupNode ? '1' : '0';
+                // Only show showGroupNode option if no subNode is selected
+                if (!sourceSubNode) {
+                    formData.showGroupNode = showGroupNode ? '1' : '0';
+                }
+                if (sourceSubNode) {
+                    formData.subNode = sourceSubNode;
+                    // When subNode is specified, parse value field for auto/remaining
+                    if (row.value) {
+                        const parsed = parseValueField(row.value, locale ?? undefined);
+                        if (parsed.type === 'auto') {
+                            formData.autoValue = '1';
+                        } else if (parsed.type === 'remaining') {
+                            formData.placeholderType = 'remaining';
+                        } else if (parsed.numericValue > 0) {
+                            formData.value = parsed.numericValue.toString();
+                        }
+                    }
+                }
             }
 
             if (row.target!.type === 'node' && row.target!.id) {
                 formData.targetRefId = row.target!.id.toString();
             } else if (row.target!.type === 'group' && row.target!.id) {
                 formData.targetRefId = row.target!.id.toString();
-                formData.showGroupNode = showGroupNode ? '1' : '0';
+                // Only show showGroupNode option if no subNode is selected
+                if (!targetSubNode) {
+                    formData.showGroupNode = showGroupNode ? '1' : '0';
+                }
+                if (targetSubNode) {
+                    formData.subNode = targetSubNode;
+                    // When subNode is specified, parse value field for auto/remaining
+                    if (row.value) {
+                        const parsed = parseValueField(row.value, locale ?? undefined);
+                        if (parsed.type === 'auto') {
+                            formData.autoValue = '1';
+                        } else if (parsed.type === 'remaining') {
+                            formData.placeholderType = 'remaining';
+                        } else if (parsed.numericValue > 0) {
+                            formData.value = parsed.numericValue.toString();
+                        }
+                    }
+                }
             }
 
             // Value is only needed for direct connections
@@ -208,21 +262,45 @@ export function AddConnectionForm({
         // Reset form but keep source for quick additional entries
         setTargetRows([ { id: 1, target: null, value: '' } ]);
         setShowGroupNode(false);
+        setSourceSubNode('');
+        setTargetSubNode('');
     };
 
+    // Show group options only when a group is selected without a specific sub-node
+    const hasGroupRefWithoutSubNode = (source?.type === 'group' && !sourceSubNode)
+        || targetRows.some(r => r.target?.type === 'group') && !targetSubNode;
     const isGroupRef = source?.type === 'group' || targetRows.some(r => r.target?.type === 'group');
+
+    // Get sub-nodes for source/target if they are groups
+    const sourceGroupSubNodes = source?.type === 'group' && source.id ? getGroupSubNodes(source.id) : [];
+    const targetGroup = targetRows[0]?.target;
+    const targetGroupSubNodes = targetGroup?.type === 'group' && targetGroup.id ? getGroupSubNodes(targetGroup.id) : [];
+
+    // Check if value input should be shown (direct connection or group with subNode)
+    const showValueInput = (source?.type === 'local' && targetRows.some(r => r.target?.type === 'local'))
+        || (source?.type === 'group' && sourceSubNode)
+        || (targetRows.some(r => r.target?.type === 'group') && targetSubNode);
 
     // Count valid rows for button text
     const validRowCount = targetRows.filter(row => {
         if (!row.target) {
             return false;
         }
+        // Direct connections require value
         if (source?.type === 'local' && row.target.type === 'local') {
             if (row.value === '') {
                 return false;
             }
             const parsed = parseValueField(row.value, locale ?? undefined);
             return parsed.type !== 'regular' || parsed.numericValue > 0;
+        }
+        // Group with subNode - value is optional (defaults to group's calculated value)
+        // But if value is specified, it must be valid
+        if ((source?.type === 'group' && sourceSubNode) || (row.target.type === 'group' && targetSubNode)) {
+            if (row.value !== '') {
+                const parsed = parseValueField(row.value, locale ?? undefined);
+                return parsed.type !== 'regular' || parsed.numericValue >= 0;
+            }
         }
         return true;
     }).length;
@@ -240,6 +318,7 @@ export function AddConnectionForm({
                         value={source}
                         onChange={opt => {
                             setSource(opt);
+                            setSourceSubNode(''); // Reset sub-node when source changes
                             // Reset to single target when source changes to a reference
                             if (opt && opt.type !== 'local') {
                                 setTargetRows([ { id: 1, target: null, value: '' } ]);
@@ -250,14 +329,36 @@ export function AddConnectionForm({
                     />
                 </div>
 
+                {/* Source sub-node selector */}
+                {source?.type === 'group' && sourceGroupSubNodes.length > 0 && (
+                    <div>
+                        <label className='text-xs text-gray-500 block mb-1'>Sub-node (optional)</label>
+                        <select
+                            value={sourceSubNode}
+                            onChange={e => setSourceSubNode(e.target.value)}
+                            className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
+                        >
+                            <option value=''>All items</option>
+                            {sourceGroupSubNodes.map(name => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                    </div>
+                )}
+
                 {/* Targets */}
                 <div className='space-y-2'>
                     <label className='text-xs text-gray-500 block'>Target{targetRows.length > 1 ? 's' : ''}</label>
                     {targetRows.map(row => {
                         const isLocalToLocal = source?.type === 'local' && row.target?.type === 'local';
-                        const needsValue = isLocalToLocal;
+                        const isGroupWithSubNode = (source?.type === 'group' && sourceSubNode)
+                            || (row.target?.type === 'group' && targetSubNode);
+                        const needsValue = isLocalToLocal || isGroupWithSubNode;
                         const parsed = row.value ? parseValueField(row.value, locale ?? undefined) : null;
                         const isSpecialType = parsed && parsed.type !== 'regular';
+                        // For group refs with subNode, only allow auto/remaining (not missing)
+                        const valuePlaceholder = isGroupWithSubNode ? 'a * 123' : 'a ? * 123';
+                        const valueTitle = isGroupWithSubNode
+                            ? 'Enter: number, "a" (auto), or "*" (remaining). Leave empty to use group\'s calculated value.'
+                            : 'Enter: number, "a" (auto), "?" (missing), or "*" (remaining)';
 
                         return (
                             <div key={row.id} className='flex items-center gap-2'>
@@ -267,6 +368,7 @@ export function AddConnectionForm({
                                         value={row.target}
                                         onChange={val => {
                                             updateTargetRow(row.id, 'target', val);
+                                            setTargetSubNode(''); // Reset sub-node when target changes
                                             // If selecting a reference, reset to single target
                                             if (val && val.type !== 'local' && targetRows.length > 1) {
                                                 setTargetRows([ { id: row.id, target: val, value: '' } ]);
@@ -283,8 +385,8 @@ export function AddConnectionForm({
                                             inputMode='decimal'
                                             value={row.value}
                                             onChange={e => updateTargetRow(row.id, 'value', e.target.value)}
-                                            placeholder='a ? * 123'
-                                            title='Enter: number, "a" (auto), "?" (missing), or "*" (remaining)'
+                                            placeholder={valuePlaceholder}
+                                            title={valueTitle}
                                             className={`w-24 px-3 py-2 border rounded-md text-sm ${
                                                 isSpecialType
                                                     ? parsed.type === 'auto'
@@ -320,6 +422,21 @@ export function AddConnectionForm({
                     })}
                 </div>
 
+                {/* Target sub-node selector */}
+                {targetRows[0]?.target?.type === 'group' && targetGroupSubNodes.length > 0 && (
+                    <div>
+                        <label className='text-xs text-gray-500 block mb-1'>Target sub-node (optional)</label>
+                        <select
+                            value={targetSubNode}
+                            onChange={e => setTargetSubNode(e.target.value)}
+                            className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
+                        >
+                            <option value=''>All items</option>
+                            {targetGroupSubNodes.map(name => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                    </div>
+                )}
+
                 {/* Add another target button */}
                 {canAddMultipleTargets && (
                     <button
@@ -339,7 +456,7 @@ export function AddConnectionForm({
                     </button>
                 )}
 
-                {isGroupRef && (
+                {hasGroupRefWithoutSubNode && (
                     <label className='flex items-center gap-2 text-sm text-gray-700'>
                         <input
                             type='checkbox'
@@ -349,6 +466,10 @@ export function AddConnectionForm({
                         />
                         Show group name as intermediate node in diagram
                     </label>
+                )}
+
+                {isGroupRef && !hasGroupRefWithoutSubNode && (
+                    <p className='text-xs text-gray-500'>Connecting to a specific sub-node within the group.</p>
                 )}
 
                 {source && source.type !== 'local' && targetRows[0]?.target && (

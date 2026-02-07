@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useFetcher } from 'react-router';
 import { EditableConnectionRow } from './EditableConnectionRow';
-import type { ConnectionRowData } from './types';
+import type { ConnectionRowData, GroupWithConnections } from './types';
 
 export function ConnectionList({
     rows,
@@ -15,7 +15,7 @@ export function ConnectionList({
 }: {
     rows: ConnectionRowData[];
     projectId: number;
-    groups: Array<{ id: number; name: string }>;
+    groups: GroupWithConnections[];
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
     onDelete: (row: ConnectionRowData) => void;

@@ -2,12 +2,12 @@ import { useState, useMemo, useEffect } from 'react';
 import { Link, useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber, formatLocaleNumber } from './numberUtils';
-import type { ComboboxOption, ConnectionRowData } from './types';
+import type { ComboboxOption, ConnectionRowData, GroupWithConnections } from './types';
 
 interface EditableConnectionRowProps {
     row: ConnectionRowData;
     projectId: number;
-    groups: Array<{ id: number; name: string }>;
+    groups: GroupWithConnections[];
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
     onDelete: () => void;
@@ -41,11 +41,33 @@ export function EditableConnectionRow({
     const [ displayTarget, setDisplayTarget ] = useState(row.target);
     const [ displayValue, setDisplayValue ] = useState(row.value);
     const [ showGroupNode, setShowGroupNode ] = useState(row.showGroupNode ?? false);
+    const [ subNode, setSubNode ] = useState(row.subNode ?? null);
     const [ placeholderType, setPlaceholderType ] = useState<'missing' | 'remaining' | null>(
         row.placeholderType ?? null
     );
     const [ autoValue, setAutoValue ] = useState(row.autoValue ?? false);
     const fetcher = useFetcher();
+
+    // Get sub-node options for a group
+    const getGroupSubNodes = (groupId: number): string[] => {
+        const group = groups.find(g => g.id === groupId);
+        if (!group) {
+            return [];
+        }
+        const subNodeNames = new Set<string>();
+        for (const conn of group.connections) {
+            if (conn.source) {
+                subNodeNames.add(conn.source);
+            }
+            if (conn.target) {
+                subNodeNames.add(conn.target);
+            }
+        }
+        return Array.from(subNodeNames).sort();
+    };
+
+    // Get sub-nodes for current group reference
+    const groupSubNodes = row.type === 'group-ref' && row.refId ? getGroupSubNodes(row.refId) : [];
 
     // Sync display values when row changes from server
     useEffect(() => {
@@ -65,6 +87,10 @@ export function EditableConnectionRow({
     }, [ row.showGroupNode ]);
 
     useEffect(() => {
+        setSubNode(row.subNode ?? null);
+    }, [ row.subNode ]);
+
+    useEffect(() => {
         setPlaceholderType(row.placeholderType ?? null);
     }, [ row.placeholderType ]);
 
@@ -75,10 +101,21 @@ export function EditableConnectionRow({
     // Check if another connection from this source already has auto/remaining
     // (excluding the current connection)
     const sourceHasOtherAutoOrRemaining = useMemo(() => {
-        if (!existingPlaceholders || row.type !== 'direct') {
+        // Works for direct connections and group-refs with subNode
+        if (!existingPlaceholders || (row.type !== 'direct' && !(row.type === 'group-ref' && subNode))) {
             return { auto: false, remaining: false };
         }
-        const source = displaySource;
+
+        // For group-ref with subNode, the source depends on direction
+        // If direction is 'target', the subNode is the source
+        // If direction is 'source', the connecting local node is the source
+        let source: string;
+        if (row.type === 'group-ref' && subNode) {
+            source = row.direction === 'target' ? subNode : displaySource;
+        } else {
+            source = displaySource;
+        }
+
         return {
             auto: existingPlaceholders.some(p =>
                 p.nodeName === source && p.type === 'auto' && p.connectionId !== row.id
@@ -87,9 +124,9 @@ export function EditableConnectionRow({
                 p.nodeName === source && p.type === 'remaining' && p.connectionId !== row.id
             )
         };
-    }, [ existingPlaceholders, displaySource, row.id, row.type ]);
+    }, [ existingPlaceholders, displaySource, row.id, row.type, row.direction, subNode ]);
 
-    // Build options list (same logic as AddConnectionForm)
+    // Build options list (single entry per group, no sub-nodes in main dropdown)
     const allOptions: ComboboxOption[] = useMemo(() => {
         const opts: ComboboxOption[] = [];
 
@@ -150,11 +187,25 @@ export function EditableConnectionRow({
         );
     };
 
+    // For group-refs with subNode, the subNode acts as the source when direction is 'target'
+    const isGroupRefWithSubNodeAsSource = row.type === 'group-ref' && subNode && row.direction === 'target';
+
     // All sources and targets are now editable
-    const canEditValue = row.type === 'direct';
+    // Group-refs with subNode can also edit values (like direct connections)
+    const canEditValue = row.type === 'direct' || (row.type === 'group-ref' && !!subNode);
 
     // Start editing source
     const handleSourceClick = () => {
+        // For group-refs where the group is the source, use refName directly
+        if (row.type === 'group-ref' && row.direction === 'target' && row.refName) {
+            const currentOption = allOptions.find(o => o.type === 'group' && o.name === row.refName);
+            if (currentOption) {
+                setEditSource(currentOption);
+                setEditingField('source');
+                return;
+            }
+        }
+
         // Strip brackets for group names
         const sourceName = displaySource.startsWith('[') && displaySource.endsWith(']')
             ? displaySource.slice(1, -1)
@@ -172,6 +223,16 @@ export function EditableConnectionRow({
 
     // Start editing target
     const handleTargetClick = () => {
+        // For group-refs where the group is the target, use refName directly
+        if (row.type === 'group-ref' && row.direction === 'source' && row.refName) {
+            const currentOption = allOptions.find(o => o.type === 'group' && o.name === row.refName);
+            if (currentOption) {
+                setEditTarget(currentOption);
+                setEditingField('target');
+                return;
+            }
+        }
+
         // Strip brackets for group names
         const targetName = displayTarget.startsWith('[') && displayTarget.endsWith(']')
             ? displayTarget.slice(1, -1)
@@ -247,16 +308,29 @@ export function EditableConnectionRow({
     // Save value change
     const handleValueSave = () => {
         const numValue = parseLocaleNumber(editValue, locale ?? undefined);
-        if (!isNaN(numValue) && numValue > 0 && numValue !== displayValue) {
+        if (!isNaN(numValue) && numValue >= 0 && numValue !== displayValue) {
             setDisplayValue(numValue); // Optimistic update
-            void fetcher.submit(
-                {
-                    intent: 'update-connection-value',
-                    connectionId: row.id.toString(),
-                    value: numValue.toString()
-                },
-                { method: 'post' }
-            );
+
+            // Different intent for group-ref with subNode
+            if (row.type === 'group-ref' && subNode) {
+                void fetcher.submit(
+                    {
+                        intent: 'update-group-ref-value',
+                        referenceId: row.id.toString(),
+                        value: numValue.toString()
+                    },
+                    { method: 'post' }
+                );
+            } else {
+                void fetcher.submit(
+                    {
+                        intent: 'update-connection-value',
+                        connectionId: row.id.toString(),
+                        value: numValue.toString()
+                    },
+                    { method: 'post' }
+                );
+            }
         }
         setEditingField(null);
     };
@@ -274,20 +348,50 @@ export function EditableConnectionRow({
         );
     };
 
+    // Update subNode for group reference
+    const handleSubNodeChange = (value: string) => {
+        const newSubNode = value === '' ? null : value;
+        setSubNode(newSubNode); // Optimistic update
+        if (newSubNode) {
+            setShowGroupNode(false); // Clear showGroupNode when setting subNode
+        }
+        void fetcher.submit(
+            {
+                intent: 'update-group-ref-sub-node',
+                referenceId: row.id.toString(),
+                subNode: value
+            },
+            { method: 'post' }
+        );
+    };
+
     // Update placeholder type
     const handlePlaceholderTypeChange = (type: 'missing' | 'remaining' | null) => {
         setPlaceholderType(type); // Optimistic update
         if (type) {
             setAutoValue(false); // Clear autoValue when setting a placeholder type
         }
-        void fetcher.submit(
-            {
-                intent: 'update-connection-placeholder-type',
-                connectionId: row.id.toString(),
-                placeholderType: type ?? ''
-            },
-            { method: 'post' }
-        );
+
+        // Different intent for group-ref with subNode
+        if (row.type === 'group-ref' && subNode) {
+            void fetcher.submit(
+                {
+                    intent: 'update-group-ref-placeholder-type',
+                    referenceId: row.id.toString(),
+                    placeholderType: type ?? ''
+                },
+                { method: 'post' }
+            );
+        } else {
+            void fetcher.submit(
+                {
+                    intent: 'update-connection-placeholder-type',
+                    connectionId: row.id.toString(),
+                    placeholderType: type ?? ''
+                },
+                { method: 'post' }
+            );
+        }
     };
 
     // Toggle auto value
@@ -296,14 +400,27 @@ export function EditableConnectionRow({
         if (checked) {
             setPlaceholderType(null); // Clear placeholder when setting auto value
         }
-        void fetcher.submit(
-            {
-                intent: 'update-connection-auto-value',
-                connectionId: row.id.toString(),
-                autoValue: checked ? '1' : '0'
-            },
-            { method: 'post' }
-        );
+
+        // Different intent for group-ref with subNode
+        if (row.type === 'group-ref' && subNode) {
+            void fetcher.submit(
+                {
+                    intent: 'update-group-ref-auto-value',
+                    referenceId: row.id.toString(),
+                    autoValue: checked ? '1' : '0'
+                },
+                { method: 'post' }
+            );
+        } else {
+            void fetcher.submit(
+                {
+                    intent: 'update-connection-auto-value',
+                    connectionId: row.id.toString(),
+                    autoValue: checked ? '1' : '0'
+                },
+                { method: 'post' }
+            );
+        }
     };
 
     // Get color class based on what the endpoint actually refers to
@@ -409,8 +526,9 @@ export function EditableConnectionRow({
             return <span className='text-blue-500 text-xs italic w-20 text-right'>auto</span>;
         }
 
-        if (row.type === 'group-ref') {
-            return null; // Groups don't have a single value
+        // Groups without subNode don't have a single value
+        if (row.type === 'group-ref' && !subNode) {
+            return null;
         }
 
         if (editingField === 'value') {
@@ -543,7 +661,7 @@ export function EditableConnectionRow({
                     </label>
                 </div>
             )}
-            {row.type === 'group-ref' && (
+            {row.type === 'group-ref' && !subNode && (
                 <label
                     className='flex items-center gap-1 text-xs text-gray-500'
                     title='Show group name as intermediate node in diagram'
@@ -556,6 +674,81 @@ export function EditableConnectionRow({
                     />
                     <span>Node</span>
                 </label>
+            )}
+            {row.type === 'group-ref' && groupSubNodes.length > 0 && (
+                <select
+                    value={subNode ?? ''}
+                    onChange={e => handleSubNodeChange(e.target.value)}
+                    className='text-xs border border-gray-200 rounded px-1 py-0.5 bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500'
+                    title='Filter to specific sub-node'
+                >
+                    <option value=''>All items</option>
+                    {groupSubNodes.map(name => <option key={name} value={name}>.{name}</option>)}
+                </select>
+            )}
+            {/* Auto/Remaining options for group-ref with subNode (no Missing since source is from group) */}
+            {row.type === 'group-ref' && subNode && (
+                <div className='flex items-center gap-2 text-xs'>
+                    <label className='flex items-center gap-1 text-gray-500'>
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={!placeholderType && !autoValue}
+                            onChange={() => {
+                                handlePlaceholderTypeChange(null);
+                                if (autoValue) {
+                                    handleAutoValueChange(false);
+                                }
+                            }}
+                            className='w-3 h-3'
+                        />
+                        <span>Value</span>
+                    </label>
+                    <label
+                        className={`flex items-center gap-1 ${
+                            sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-blue-600'
+                        }`}
+                        title={sourceHasOtherAutoOrRemaining.auto
+                            ? 'Source already has an Auto connection'
+                            : sourceHasOtherAutoOrRemaining.remaining
+                            ? 'Source already has a Remaining connection'
+                            : 'Value calculated as total incoming to source'}
+                    >
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={autoValue}
+                            onChange={() => handleAutoValueChange(true)}
+                            disabled={sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining}
+                            className='w-3 h-3'
+                        />
+                        <span>Auto</span>
+                    </label>
+                    <label
+                        className={`flex items-center gap-1 ${
+                            sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-green-600'
+                        }`}
+                        title={sourceHasOtherAutoOrRemaining.remaining
+                            ? 'Source already has a Remaining connection'
+                            : sourceHasOtherAutoOrRemaining.auto
+                            ? 'Source already has an Auto connection'
+                            : 'Value calculated as remaining after other outgoing flows'}
+                    >
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={placeholderType === 'remaining'}
+                            onChange={() => handlePlaceholderTypeChange('remaining')}
+                            disabled={sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining}
+                            className='w-3 h-3'
+                        />
+                        <span>Remaining</span>
+                    </label>
+                </div>
             )}
             {renderValue()}
             {getBadge()}

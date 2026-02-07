@@ -51,6 +51,10 @@ export type ScenarioWithRelations = {
         direction: string;
         displayOrder: number;
         showGroupNode: number;
+        subNode: string | null;
+        value: number | null;
+        autoValue: number | null;
+        placeholderType: string | null;
         group: {
             id: number;
             name: string;
@@ -124,7 +128,54 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
     const connectingNodeName = groupRef.connectingLocalNode.name;
     const showGroupNode = groupRef.showGroupNode === 1;
     const groupNodeName = groupRef.group.name;
+    const subNode = groupRef.subNode;
 
+    // If subNode is specified, only connect to that specific node (showGroupNode is ignored)
+    // This works like a direct connection with value, autoValue, and placeholderType support
+    if (subNode) {
+        // Find matching connections in the group to calculate default value
+        const matchingConnections = groupRef.group.connections.filter(conn => {
+            if (groupRef.direction === 'source') {
+                // We're the source, group items are targets - filter by target name
+                return conn.target === subNode;
+            } else {
+                // We're the target, group items are sources - filter by source name
+                return conn.source === subNode;
+            }
+        });
+
+        // Use custom value if set, otherwise calculate from group connections
+        const defaultValue = matchingConnections.reduce((sum, c) => sum + c.value, 0);
+        const value = groupRef.value ?? defaultValue;
+        const autoValue = groupRef.autoValue === 1;
+        const placeholderType = groupRef.placeholderType === 'remaining' ? 'remaining' : null;
+
+        if (groupRef.direction === 'source') {
+            // connectingNode → subNode
+            connections.push({
+                source: connectingNodeName,
+                target: subNode,
+                value,
+                fromGroup: groupRef.group.name,
+                autoValue: autoValue || undefined,
+                placeholderType
+            });
+        } else {
+            // subNode → connectingNode
+            connections.push({
+                source: subNode,
+                target: connectingNodeName,
+                value,
+                fromGroup: groupRef.group.name,
+                autoValue: autoValue || undefined,
+                placeholderType
+            });
+        }
+
+        return connections;
+    }
+
+    // Original behavior when no subNode is specified
     if (showGroupNode) {
         const totalValue = groupRef.group.connections.reduce((sum, c) => sum + c.value, 0);
 
@@ -438,6 +489,37 @@ export function getExistingPlaceholders(
             placeholders.push({ nodeName: conn.targetLocalNode.name, type: 'missing', connectionId: conn.id });
         } else if (conn.autoValue === 1 && conn.sourceLocalNode) {
             placeholders.push({ nodeName: conn.sourceLocalNode.name, type: 'auto', connectionId: conn.id });
+        }
+    }
+
+    // Also check group references with subNodes (they work like direct connections)
+    for (const groupRef of scenario.groupReferences) {
+        if (groupRef.subNode) {
+            // For group refs with subNode, the source is the subNode (when direction === 'target')
+            // or the connecting local node (when direction === 'source')
+            if (groupRef.direction === 'target') {
+                // subNode is the source
+                if (groupRef.placeholderType === 'remaining') {
+                    placeholders.push({ nodeName: groupRef.subNode, type: 'remaining', connectionId: groupRef.id });
+                } else if (groupRef.autoValue === 1) {
+                    placeholders.push({ nodeName: groupRef.subNode, type: 'auto', connectionId: groupRef.id });
+                }
+            } else {
+                // connecting local node is the source
+                if (groupRef.placeholderType === 'remaining') {
+                    placeholders.push({
+                        nodeName: groupRef.connectingLocalNode.name,
+                        type: 'remaining',
+                        connectionId: groupRef.id
+                    });
+                } else if (groupRef.autoValue === 1) {
+                    placeholders.push({
+                        nodeName: groupRef.connectingLocalNode.name,
+                        type: 'auto',
+                        connectionId: groupRef.id
+                    });
+                }
+            }
         }
     }
 

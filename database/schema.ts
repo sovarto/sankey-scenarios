@@ -203,6 +203,8 @@ export const connectionsRelations = relations(connections, ({ one }) => ({
 // The connectingLocalNodeId references which local node the group connects TO or FROM
 // direction: "source" means localNode → [group nodes] (group defines targets)
 // direction: "target" means [group nodes] → localNode (group defines sources)
+// subNode: optional - if set, only connect to this specific node within the group
+// When subNode is set, value/autoValue/placeholderType work like direct connections
 export const scenarioGroups = pgTable('scenario_groups', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().notNull().references(() => scenarios.id, { onDelete: 'cascade' }),
@@ -210,6 +212,11 @@ export const scenarioGroups = pgTable('scenario_groups', {
     connectingLocalNodeId: integer().notNull().references(() => scenarioLocalNodes.id, { onDelete: 'cascade' }),
     direction: varchar({ length: 10 }).notNull().default('source'), // 'source' or 'target'
     showGroupNode: integer().notNull().default(0), // 0 = false, 1 = true (show group name as intermediate node)
+    subNode: varchar({ length: 255 }), // null = connect to all, otherwise specific node name within the group
+    // When subNode is set, these work like direct connections:
+    value: real(), // custom value - if null, uses sum of group connections for that subNode
+    autoValue: integer().notNull().default(0), // 0 = false, 1 = true (calculate as total incoming)
+    placeholderType: varchar({ length: 20 }), // 'remaining' - value will be calculated
     displayOrder: integer().notNull().default(0)
 });
 

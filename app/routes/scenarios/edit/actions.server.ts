@@ -2,7 +2,7 @@
  * Action handlers for scenario view page
  */
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull, isNotNull } from 'drizzle-orm';
 import { getOrCreateLocalNode, cleanupUnusedLocalNodes, convertConnection } from './helpers.server';
 import type { database } from '~/database/context';
 import * as schema from '~/database/schema';
@@ -128,13 +128,48 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
     if (sourceType === 'group' && sourceRefId) {
         const groupId = parseInt(sourceRefId as string, 10);
         const connectingLocalNodeId = await getOrCreateLocalNode(db, scenarioId, target as string);
-        const showGroupNodeValue = formData.get('showGroupNode') === '1' ? 1 : 0;
+        const subNode = formData.get('subNode');
+        // showGroupNode is only applicable when no subNode is specified
+        const showGroupNodeValue = subNode ? 0 : (formData.get('showGroupNode') === '1' ? 1 : 0);
+
+        // Validation: If adding with subNode, must have an existing "all items" connection to this group
+        if (subNode) {
+            const existingAllItemsRef = await db.query.scenarioGroups.findFirst({
+                where: and(
+                    eq(schema.scenarioGroups.scenarioId, scenarioId),
+                    eq(schema.scenarioGroups.groupId, groupId),
+                    isNull(schema.scenarioGroups.subNode)
+                )
+            });
+            if (!existingAllItemsRef) {
+                return {
+                    error:
+                        'You must first add a connection to this group without a subnode selected. This establishes all group nodes in the diagram.'
+                };
+            }
+        }
+
+        // When subNode is set, support value/autoValue/placeholderType like direct connections
+        const placeholderType = formData.get('placeholderType');
+        const autoValueStr = formData.get('autoValue');
+        const isPlaceholder = placeholderType === 'remaining'; // Only 'remaining' supported for group-ref
+        const isAutoValue = autoValueStr === '1';
+        let numValue: number | null = null;
+        if (subNode && !isPlaceholder && !isAutoValue) {
+            const valueStr = formData.get('value');
+            numValue = valueStr ? parseFloat(valueStr as string) : null;
+        }
+
         await db.insert(schema.scenarioGroups).values({
             scenarioId,
             groupId,
             connectingLocalNodeId,
             direction: 'target',
             showGroupNode: showGroupNodeValue,
+            subNode: typeof subNode === 'string' ? subNode : null,
+            value: numValue,
+            autoValue: subNode && isAutoValue ? 1 : 0,
+            placeholderType: subNode && isPlaceholder ? 'remaining' : null,
             displayOrder
         });
         return { success: true };
@@ -143,13 +178,48 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
     if (targetType === 'group' && targetRefId) {
         const groupId = parseInt(targetRefId as string, 10);
         const connectingLocalNodeId = await getOrCreateLocalNode(db, scenarioId, source as string);
-        const showGroupNodeValue = formData.get('showGroupNode') === '1' ? 1 : 0;
+        const subNode = formData.get('subNode');
+        // showGroupNode is only applicable when no subNode is specified
+        const showGroupNodeValue = subNode ? 0 : (formData.get('showGroupNode') === '1' ? 1 : 0);
+
+        // Validation: If adding with subNode, must have an existing "all items" connection to this group
+        if (subNode) {
+            const existingAllItemsRef = await db.query.scenarioGroups.findFirst({
+                where: and(
+                    eq(schema.scenarioGroups.scenarioId, scenarioId),
+                    eq(schema.scenarioGroups.groupId, groupId),
+                    isNull(schema.scenarioGroups.subNode)
+                )
+            });
+            if (!existingAllItemsRef) {
+                return {
+                    error:
+                        'You must first add a connection to this group without a subnode selected. This establishes all group nodes in the diagram.'
+                };
+            }
+        }
+
+        // When subNode is set, support value/autoValue/placeholderType like direct connections
+        const placeholderType = formData.get('placeholderType');
+        const autoValueStr = formData.get('autoValue');
+        const isPlaceholder = placeholderType === 'remaining'; // Only 'remaining' supported for group-ref
+        const isAutoValue = autoValueStr === '1';
+        let numValue: number | null = null;
+        if (subNode && !isPlaceholder && !isAutoValue) {
+            const valueStr = formData.get('value');
+            numValue = valueStr ? parseFloat(valueStr as string) : null;
+        }
+
         await db.insert(schema.scenarioGroups).values({
             scenarioId,
             groupId,
             connectingLocalNodeId,
             direction: 'source',
             showGroupNode: showGroupNodeValue,
+            subNode: typeof subNode === 'string' ? subNode : null,
+            value: numValue,
+            autoValue: subNode && isAutoValue ? 1 : 0,
+            placeholderType: subNode && isPlaceholder ? 'remaining' : null,
             displayOrder
         });
         return { success: true };
@@ -447,7 +517,9 @@ async function updateGroupRefSource(
                 newRefId: newRefId ?? undefined,
                 preservedLocalNodeId: existingRef.connectingLocalNode.id,
                 displayOrder: existingRef.displayOrder,
-                refDirection: 'source'
+                // When editing source to be a group/node, that group/node becomes the 'target' of data flow
+                // (data flows FROM local node TO the group/node)
+                refDirection: newType === 'group' ? 'target' : 'source'
             });
         }
     }
@@ -485,7 +557,9 @@ async function updateGroupRefTarget(
                 newRefId: newRefId ?? undefined,
                 preservedLocalNodeId: existingRef.connectingLocalNode.id,
                 displayOrder: existingRef.displayOrder,
-                refDirection: 'target'
+                // When editing target to be a group/node, that group/node becomes the 'source' of data flow
+                // (data flows FROM the group/node TO local node)
+                refDirection: newType === 'group' ? 'source' : 'target'
             });
         }
     }
@@ -579,7 +653,33 @@ export async function handleDeleteGroupReference(ctx: ActionContext): Promise<Ac
     const referenceId = formData.get('referenceId');
 
     if (typeof referenceId === 'string') {
-        await db.delete(schema.scenarioGroups).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+        const refId = parseInt(referenceId, 10);
+
+        // Get the reference being deleted
+        const ref = await db.query.scenarioGroups.findFirst({
+            where: eq(schema.scenarioGroups.id, refId)
+        });
+
+        if (ref) {
+            // If this is an "all items" connection (no subNode), check for dependent subNode connections
+            if (!ref.subNode) {
+                const subNodeRefs = await db.query.scenarioGroups.findFirst({
+                    where: and(
+                        eq(schema.scenarioGroups.scenarioId, scenarioId),
+                        eq(schema.scenarioGroups.groupId, ref.groupId),
+                        isNotNull(schema.scenarioGroups.subNode)
+                    )
+                });
+                if (subNodeRefs) {
+                    return {
+                        error:
+                            'Cannot remove this group connection while there are still subnode connections to this group. Remove the subnode connections first.'
+                    };
+                }
+            }
+        }
+
+        await db.delete(schema.scenarioGroups).where(eq(schema.scenarioGroups.id, refId));
         await cleanupUnusedLocalNodes(db, scenarioId);
     }
 
@@ -607,6 +707,116 @@ export async function handleUpdateGroupRefShowNode(ctx: ActionContext): Promise<
     if (typeof referenceId === 'string' && typeof showGroupNode === 'string') {
         await db.update(schema.scenarioGroups).set({
             showGroupNode: showGroupNode === '1' ? 1 : 0
+        }).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+        return { success: true };
+    }
+
+    return { error: 'Invalid parameters' };
+}
+
+export async function handleUpdateGroupRefSubNode(ctx: ActionContext): Promise<ActionResult> {
+    const { db, scenarioId, formData } = ctx;
+
+    const referenceId = formData.get('referenceId');
+    const subNode = formData.get('subNode');
+
+    if (typeof referenceId === 'string') {
+        const refId = parseInt(referenceId, 10);
+        // subNode can be empty string (meaning "all items") or a specific node name
+        const subNodeValue = typeof subNode === 'string' && subNode.trim() ? subNode.trim() : null;
+
+        // If setting a subNode, validate that another "all items" connection exists for this group
+        if (subNodeValue) {
+            const currentRef = await db.query.scenarioGroups.findFirst({
+                where: eq(schema.scenarioGroups.id, refId)
+            });
+            if (currentRef) {
+                // Check if there's another reference to this group without a subNode
+                const otherAllItemsRef = await db.query.scenarioGroups.findFirst({
+                    where: and(
+                        eq(schema.scenarioGroups.scenarioId, scenarioId),
+                        eq(schema.scenarioGroups.groupId, currentRef.groupId),
+                        isNull(schema.scenarioGroups.subNode),
+                        sql`${schema.scenarioGroups.id} != ${refId}`
+                    )
+                });
+                if (!otherAllItemsRef) {
+                    return {
+                        error:
+                            'Cannot set a subnode on this connection because it is the only "all items" connection to this group. Add another connection to the group first, or keep this one without a subnode.'
+                    };
+                }
+            }
+        }
+
+        await db.update(schema.scenarioGroups).set({
+            subNode: subNodeValue,
+            // When setting a subNode, showGroupNode should be disabled
+            showGroupNode: subNodeValue ? 0 : undefined,
+            // Reset value-related fields when clearing subNode
+            value: subNodeValue ? undefined : null,
+            autoValue: subNodeValue ? undefined : 0,
+            placeholderType: subNodeValue ? undefined : null
+        }).where(eq(schema.scenarioGroups.id, refId));
+        return { success: true };
+    }
+
+    return { error: 'Invalid parameters' };
+}
+
+export async function handleUpdateGroupRefValue(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const referenceId = formData.get('referenceId');
+    const value = formData.get('value');
+
+    if (typeof referenceId === 'string' && typeof value === 'string') {
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue) && numValue >= 0) {
+            await db.update(schema.scenarioGroups).set({
+                value: numValue,
+                // Clear auto and placeholder when setting explicit value
+                autoValue: 0,
+                placeholderType: null
+            }).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+            return { success: true };
+        }
+    }
+
+    return { error: 'Invalid parameters' };
+}
+
+export async function handleUpdateGroupRefAutoValue(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const referenceId = formData.get('referenceId');
+    const autoValue = formData.get('autoValue');
+
+    if (typeof referenceId === 'string' && typeof autoValue === 'string') {
+        const isAuto = autoValue === '1';
+        await db.update(schema.scenarioGroups).set({
+            autoValue: isAuto ? 1 : 0,
+            // Clear placeholder when enabling auto
+            placeholderType: isAuto ? null : undefined
+        }).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+        return { success: true };
+    }
+
+    return { error: 'Invalid parameters' };
+}
+
+export async function handleUpdateGroupRefPlaceholderType(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const referenceId = formData.get('referenceId');
+    const placeholderType = formData.get('placeholderType');
+
+    if (typeof referenceId === 'string') {
+        const typeValue = placeholderType === 'remaining' ? 'remaining' : null;
+        await db.update(schema.scenarioGroups).set({
+            placeholderType: typeValue,
+            // Clear auto when setting placeholder
+            autoValue: typeValue ? 0 : undefined
         }).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
         return { success: true };
     }

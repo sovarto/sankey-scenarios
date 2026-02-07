@@ -59,10 +59,15 @@ export async function loadScenarioView(projectId: number, scenarioId: number, us
         throw new Response('Scenario not found', { status: 404 });
     }
 
-    // Get all available groups for this project
+    // Get all available groups for this project (with their connections for sub-node selection)
     const groups = await db.query.groups.findMany({
         where: eq(schema.groups.projectId, projectId),
         columns: { id: true, name: true },
+        with: {
+            connections: {
+                columns: { source: true, target: true, value: true }
+            }
+        },
         orderBy: (groups, { asc }) => [ asc(groups.name) ]
     });
 
