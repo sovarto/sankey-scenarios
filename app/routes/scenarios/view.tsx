@@ -168,7 +168,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                                             nodeWidth: 10,
                                             nodeHeightFactor: 50,
                                             nodeSpacingFactor: 85,
-                                            flowCurvature: 0.5,
+                                            flowCurvature: 0.2,
                                             nodeOpacity: 0.9,
                                             flowOpacity: 0.45,
                                             flowColorMode: 'source',

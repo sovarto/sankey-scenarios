@@ -258,7 +258,7 @@ export const DEFAULT_CONFIG: ResolvedSankeyConfig = {
     nodeHeightFactor: 50,
     nodeSpacingFactor: 85,
     nodeBorder: 0,
-    flowCurvature: 0.5,
+    flowCurvature: 0.2,
     defaultNodeColor: '#888888',
     defaultFlowColor: '#999999',
     nodeOpacity: 1.0,
