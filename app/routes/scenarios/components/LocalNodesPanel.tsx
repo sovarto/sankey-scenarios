@@ -15,6 +15,7 @@ interface ConnectionInfo {
     sourceLocalNodeId?: number;
     targetLocalNodeId?: number;
     value: number;
+    placeholderType?: 'missing' | 'remaining' | null;
 }
 
 interface LocalNodeFlowInfo {
@@ -29,25 +30,35 @@ function computeNodeFlowInfo(localNodes: LocalNode[], connections: ConnectionInf
     const flowMap = new Map<number, LocalNodeFlowInfo>();
 
     for (const node of localNodes) {
-        const incoming = connections.filter(c => c.targetLocalNodeId === node.id && c.value > 0).map(c => c.value);
-        const outgoing = connections.filter(c => c.sourceLocalNodeId === node.id && c.value > 0).map(c => c.value);
+        // Count ALL connections (including auto flows with value 0) to determine if node can be moved
+        const allIncoming = connections.filter(c => c.targetLocalNodeId === node.id);
+        const allOutgoing = connections.filter(c => c.sourceLocalNodeId === node.id);
 
-        // Can move if there's exactly one incoming flow OR exactly one outgoing flow (but not both having multiple)
-        const hasSingleIncoming = incoming.length === 1 && outgoing.length === 0;
-        const hasSingleOutgoing = outgoing.length === 1 && incoming.length === 0;
-        const canMove = hasSingleIncoming || hasSingleOutgoing;
+        // Get non-zero values for display/deduction purposes
+        const incomingValues = allIncoming.filter(c => c.value > 0).map(c => c.value);
+        const outgoingValues = allOutgoing.filter(c => c.value > 0).map(c => c.value);
+
+        // Check if this node is a target of a 'remaining' placeholder connection - these cannot be promoted
+        const isRemainingTarget = allIncoming.some(c => c.placeholderType === 'remaining');
+
+        // Can move if there's exactly one incoming connection OR exactly one outgoing connection (but not both having multiple)
+        // This includes auto flows - a node with one auto incoming and one manual incoming still has 2 connections
+        // Also exclude nodes that are targets of 'remaining' placeholder connections
+        const hasSingleIncoming = allIncoming.length === 1 && allOutgoing.length === 0;
+        const hasSingleOutgoing = allOutgoing.length === 1 && allIncoming.length === 0;
+        const canMove = !isRemainingTarget && (hasSingleIncoming || hasSingleOutgoing);
 
         let deducedValue: number | null = null;
-        if (hasSingleIncoming) {
-            deducedValue = incoming[0];
-        } else if (hasSingleOutgoing) {
-            deducedValue = outgoing[0];
+        if (hasSingleIncoming && incomingValues.length === 1) {
+            deducedValue = incomingValues[0];
+        } else if (hasSingleOutgoing && outgoingValues.length === 1) {
+            deducedValue = outgoingValues[0];
         }
 
         flowMap.set(node.id, {
             node,
-            incomingFlows: incoming,
-            outgoingFlows: outgoing,
+            incomingFlows: incomingValues,
+            outgoingFlows: outgoingValues,
             canMove,
             deducedValue
         });
@@ -93,6 +104,13 @@ export function LocalNodesPanel({
             newGroupInputRef.current.focus();
         }
     }, [ showNewGroupInput ]);
+
+    // Display errors from the server
+    useEffect(() => {
+        if (fetcher.state === 'idle' && fetcher.data && typeof fetcher.data === 'object' && 'error' in fetcher.data) {
+            alert(fetcher.data.error);
+        }
+    }, [ fetcher.state, fetcher.data ]);
 
     const toggleNode = (nodeId: number) => {
         const flowInfo = flowInfoMap.get(nodeId);
@@ -140,37 +158,45 @@ export function LocalNodesPanel({
     };
 
     const handlePromoteToProjectNode = () => {
-        if (selectedNodes.size !== 1) {
-            return;
-        }
-        const nodeId = Array.from(selectedNodes)[0];
-        const flowInfo = flowInfoMap.get(nodeId);
-        if (!flowInfo) {
+        if (selectedNodes.size === 0) {
             return;
         }
 
-        const defaultValue = flowInfo.deducedValue?.toString() ?? '1';
-        const value = prompt(`Enter value for project node "${flowInfo.node.name}":`, defaultValue);
-        if (value === null) {
+        const nodeIds = Array.from(selectedNodes);
+        const nodeInfos = nodeIds.map(id => ({
+            id,
+            flowInfo: flowInfoMap.get(id)
+        })).filter((info): info is { id: number; flowInfo: LocalNodeFlowInfo } => info.flowInfo != null);
+
+        if (nodeInfos.length === 0) {
             return;
         }
 
-        const numValue = parseFloat(value);
-        if (isNaN(numValue) || numValue <= 0) {
-            alert('Value must be a positive number');
+        // Build the promotion data for each node
+        const promotions = nodeInfos.map(({ id, flowInfo }) => {
+            const direction = flowInfo.incomingFlows.length === 1 ? 'target' : 'source';
+            return {
+                localNodeId: id,
+                value: flowInfo.deducedValue ?? 1,
+                direction,
+                name: flowInfo.node.name
+            };
+        });
+
+        // Show a confirmation with all nodes to be promoted
+        const nodeNames = promotions.map(p => `"${p.name}" (value: ${p.value})`).join('\n');
+        const message = promotions.length === 1
+            ? `Promote "${promotions[0].name}" to project node with value ${promotions[0].value}?`
+            : `Promote ${promotions.length} local nodes to project nodes?\n\n${nodeNames}`;
+
+        if (!confirm(message)) {
             return;
         }
-
-        // Determine direction: if node has single incoming, project node is 'target'
-        // If node has single outgoing, project node is 'source'
-        const direction = flowInfo.incomingFlows.length === 1 ? 'target' : 'source';
 
         void fetcher.submit(
             {
                 intent: 'promote-to-project-node',
-                localNodeId: nodeId.toString(),
-                value: numValue.toString(),
-                direction
+                promotions: JSON.stringify(promotions)
             },
             { method: 'post' }
         );
@@ -188,25 +214,12 @@ export function LocalNodesPanel({
         }
 
         const nodeIds = Array.from(selectedNodes);
-        const defaultValue = getSelectedNodesValue()?.toString() ?? '1';
-
-        const value = prompt(`Enter value for connection(s) in group:`, defaultValue);
-        if (value === null) {
-            return;
-        }
-
-        const numValue = parseFloat(value);
-        if (isNaN(numValue) || numValue <= 0) {
-            alert('Value must be a positive number');
-            return;
-        }
 
         void fetcher.submit(
             {
                 intent: 'add-local-nodes-to-group',
                 localNodeIds: JSON.stringify(nodeIds),
-                groupId: groupId.toString(),
-                value: numValue.toString()
+                groupId: groupId.toString()
             },
             { method: 'post' }
         );
@@ -224,27 +237,12 @@ export function LocalNodesPanel({
         }
 
         const nodeIds = Array.from(selectedNodes);
-        const defaultValue = getSelectedNodesValue()?.toString() ?? '1';
-
-        const value = prompt(`Enter value for connection(s) in new group "${newGroupName}":`, defaultValue);
-        if (value === null) {
-            setShowNewGroupInput(false);
-            setNewGroupName('');
-            return;
-        }
-
-        const numValue = parseFloat(value);
-        if (isNaN(numValue) || numValue <= 0) {
-            alert('Value must be a positive number');
-            return;
-        }
 
         void fetcher.submit(
             {
                 intent: 'add-local-nodes-to-new-group',
                 localNodeIds: JSON.stringify(nodeIds),
-                groupName: newGroupName.trim(),
-                value: numValue.toString()
+                groupName: newGroupName.trim()
             },
             { method: 'post' }
         );
@@ -284,16 +282,14 @@ export function LocalNodesPanel({
             {/* Bulk action bar */}
             {hasSelection && (
                 <div className='flex items-center gap-3 mb-4 p-3 bg-blue-50 rounded-lg'>
-                    {hasSingleSelection && (
-                        <button
-                            type='button'
-                            onClick={handlePromoteToProjectNode}
-                            className='px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors'
-                            disabled={fetcher.state !== 'idle'}
-                        >
-                            Promote to Project Node
-                        </button>
-                    )}
+                    <button
+                        type='button'
+                        onClick={handlePromoteToProjectNode}
+                        className='px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors'
+                        disabled={fetcher.state !== 'idle'}
+                    >
+                        Promote to Project Node{selectedNodes.size > 1 ? 's' : ''}
+                    </button>
                     <div className='relative group'>
                         <button
                             type='button'

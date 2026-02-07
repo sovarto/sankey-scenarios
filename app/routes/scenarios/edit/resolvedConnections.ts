@@ -217,27 +217,42 @@ function resolveNodeReference(nodeRef: ScenarioWithRelations['nodeReferences'][n
  * Auto-generated balancing flows are inserted after the last connection involving the node.
  */
 export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedConnection[] {
-    // First pass: Calculate incoming totals for each node (excluding placeholders and auto-value connections)
-    // This is needed to resolve auto-value connections
-    const nodeIncoming = new Map<string, number>();
+    // Resolve auto-value connections iteratively
+    // Auto-values depend on the total incoming to their source node, which may include other auto-values
+    // We iterate until all auto-values are stable
 
-    for (const conn of connections) {
-        if (conn.placeholderType || conn.autoValue) {
-            continue; // Skip placeholders and auto-value for initial calculation
+    let resolvedConnections = [ ...connections ];
+    let changed = true;
+    const maxIterations = 100; // Safety limit to prevent infinite loops
+    let iterations = 0;
+
+    while (changed && iterations < maxIterations) {
+        changed = false;
+        iterations++;
+
+        // Calculate incoming totals for each node (excluding placeholders, but INCLUDING resolved auto-values)
+        const nodeIncoming = new Map<string, number>();
+
+        for (const conn of resolvedConnections) {
+            if (conn.placeholderType) {
+                continue; // Skip placeholders
+            }
+            // Include the connection's value (auto-values will use their current resolved value)
+            nodeIncoming.set(conn.target, (nodeIncoming.get(conn.target) ?? 0) + conn.value);
         }
 
-        // Update target node incoming
-        nodeIncoming.set(conn.target, (nodeIncoming.get(conn.target) ?? 0) + conn.value);
+        // Update auto-value connections based on current incoming totals
+        resolvedConnections = resolvedConnections.map(conn => {
+            if (conn.autoValue) {
+                const sourceIncoming = nodeIncoming.get(conn.source) ?? 0;
+                if (conn.value !== sourceIncoming) {
+                    changed = true;
+                    return { ...conn, value: sourceIncoming };
+                }
+            }
+            return conn;
+        });
     }
-
-    // Resolve auto-value connections by setting their value to the source's total incoming
-    const resolvedConnections = connections.map(conn => {
-        if (conn.autoValue) {
-            const sourceIncoming = nodeIncoming.get(conn.source) ?? 0;
-            return { ...conn, value: sourceIncoming };
-        }
-        return conn;
-    });
 
     // Second pass: Calculate full balance for each node (excluding placeholders)
     const nodeBalance = new Map<string, { incoming: number; outgoing: number }>();

@@ -223,7 +223,8 @@ export default function ViewScenario({}: Route.ComponentProps) {
                     connections={scenario.connections.map(c => ({
                         sourceLocalNodeId: c.sourceLocalNode?.id,
                         targetLocalNodeId: c.targetLocalNode?.id,
-                        value: c.value
+                        value: c.value,
+                        placeholderType: c.placeholderType as 'missing' | 'remaining' | null | undefined
                     }))}
                     nodeReferences={scenario.nodeReferences.map(nr => ({
                         connectingLocalNodeId: nr.connectingLocalNode?.id

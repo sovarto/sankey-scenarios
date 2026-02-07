@@ -688,104 +688,136 @@ export async function handleReorderConnections(ctx: ActionContext): Promise<Acti
 // Local node promotion actions
 // ============================================================================
 
+interface PromotionData {
+    localNodeId: number;
+    value: number;
+    direction: 'source' | 'target';
+    name: string;
+}
+
 export async function handlePromoteToProjectNode(ctx: ActionContext): Promise<ActionResult> {
     const { db, projectId, scenarioId, formData } = ctx;
 
-    const localNodeId = formData.get('localNodeId');
-    const value = formData.get('value');
-    const direction = formData.get('direction');
+    const promotionsJson = formData.get('promotions');
 
-    if (typeof localNodeId !== 'string' || typeof value !== 'string' || typeof direction !== 'string') {
-        return { error: 'Local node ID, value, and direction are required' };
+    if (typeof promotionsJson !== 'string') {
+        return { error: 'Promotions data is required' };
     }
 
-    if (direction !== 'source' && direction !== 'target') {
-        return { error: 'Direction must be "source" or "target"' };
+    let promotions: PromotionData[];
+    try {
+        promotions = JSON.parse(promotionsJson);
+        if (!Array.isArray(promotions) || promotions.length === 0) {
+            throw new Error('Invalid format');
+        }
+    } catch {
+        return { error: 'Invalid promotions format' };
     }
 
-    const numValue = parseFloat(value);
-    if (isNaN(numValue) || numValue <= 0) {
-        return { error: 'Value must be a positive number' };
+    // Validate all promotions
+    for (const promotion of promotions) {
+        if (
+            typeof promotion.localNodeId !== 'number'
+            || typeof promotion.value !== 'number'
+            || (promotion.direction !== 'source' && promotion.direction !== 'target')
+        ) {
+            return { error: 'Invalid promotion data' };
+        }
+        if (promotion.value <= 0) {
+            return { error: 'Value must be a positive number' };
+        }
     }
 
-    const localNodeIdNum = parseInt(localNodeId, 10);
-    const localNode = await db.query.scenarioLocalNodes.findFirst({
-        where: and(
-            eq(schema.scenarioLocalNodes.id, localNodeIdNum),
-            eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
-        )
-    });
-
-    if (!localNode) {
-        return { error: 'Local node not found' };
+    // Check for duplicate project node names
+    const names = promotions.map(p => p.name);
+    const uniqueNames = new Set(names);
+    if (uniqueNames.size !== names.length) {
+        return { error: 'Cannot promote multiple local nodes with the same name' };
     }
 
-    // Check if a project node with this name already exists
-    const existingNode = await db.query.nodes.findFirst({
-        where: and(
-            eq(schema.nodes.projectId, projectId),
-            eq(schema.nodes.name, localNode.name)
-        )
-    });
-
-    if (existingNode) {
-        return { error: `A project node named "${localNode.name}" already exists` };
-    }
-
-    // Find the connection involving this local node to determine the connecting local node
-    // direction='target' means node has incoming flow, so find connection where this node is the target
-    // direction='source' means node has outgoing flow, so find connection where this node is the source
-    let connection;
-    let connectingLocalNodeId: number;
-
-    if (direction === 'target') {
-        // Local node receives flow, find connection where it's the target
-        connection = await db.query.connections.findFirst({
+    // Check if any project nodes with these names already exist
+    for (const name of names) {
+        const existingNode = await db.query.nodes.findFirst({
             where: and(
-                eq(schema.connections.scenarioId, scenarioId),
-                eq(schema.connections.targetLocalNodeId, localNodeIdNum)
+                eq(schema.nodes.projectId, projectId),
+                eq(schema.nodes.name, name)
             )
         });
-        if (!connection || !connection.sourceLocalNodeId) {
-            return { error: 'Could not find connection to this node' };
+        if (existingNode) {
+            return { error: `A project node named "${name}" already exists` };
         }
-        connectingLocalNodeId = connection.sourceLocalNodeId;
-    } else {
-        // Local node sends flow, find connection where it's the source
-        connection = await db.query.connections.findFirst({
-            where: and(
-                eq(schema.connections.scenarioId, scenarioId),
-                eq(schema.connections.sourceLocalNodeId, localNodeIdNum)
-            )
-        });
-        if (!connection || !connection.targetLocalNodeId) {
-            return { error: 'Could not find connection from this node' };
-        }
-        connectingLocalNodeId = connection.targetLocalNodeId;
     }
 
-    // Create the project node
-    const [ newProjectNode ] = await db.insert(schema.nodes).values({
-        projectId,
-        name: localNode.name,
-        value: numValue
-    }).returning({ id: schema.nodes.id });
+    // Process each promotion
+    for (const promotion of promotions) {
+        const { localNodeId: localNodeIdNum, value: numValue, direction } = promotion;
 
-    // Create a scenarioNode reference linking the project node to the OTHER local node
-    // Preserve the display order from the original connection
-    await db.insert(schema.scenarioNodes).values({
-        scenarioId,
-        nodeId: newProjectNode.id,
-        connectingLocalNodeId,
-        direction,
-        displayOrder: connection.displayOrder
-    });
+        const localNode = await db.query.scenarioLocalNodes.findFirst({
+            where: and(
+                eq(schema.scenarioLocalNodes.id, localNodeIdNum),
+                eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
+            )
+        });
 
-    // Delete the original direct connection
-    await db.delete(schema.connections).where(eq(schema.connections.id, connection.id));
+        if (!localNode) {
+            return { error: `Local node not found: ${promotion.name}` };
+        }
 
-    // Delete the promoted local node (it's now represented by the project node)
-    await db.delete(schema.scenarioLocalNodes).where(eq(schema.scenarioLocalNodes.id, localNodeIdNum));
+        // Find the connection involving this local node to determine the connecting local node
+        // direction='target' means node has incoming flow, so find connection where this node is the target
+        // direction='source' means node has outgoing flow, so find connection where this node is the source
+        let connection;
+        let connectingLocalNodeId: number;
+
+        if (direction === 'target') {
+            // Local node receives flow, find connection where it's the target
+            connection = await db.query.connections.findFirst({
+                where: and(
+                    eq(schema.connections.scenarioId, scenarioId),
+                    eq(schema.connections.targetLocalNodeId, localNodeIdNum)
+                )
+            });
+            if (!connection || !connection.sourceLocalNodeId) {
+                return { error: `Could not find connection to node: ${promotion.name}` };
+            }
+            connectingLocalNodeId = connection.sourceLocalNodeId;
+        } else {
+            // Local node sends flow, find connection where it's the source
+            connection = await db.query.connections.findFirst({
+                where: and(
+                    eq(schema.connections.scenarioId, scenarioId),
+                    eq(schema.connections.sourceLocalNodeId, localNodeIdNum)
+                )
+            });
+            if (!connection || !connection.targetLocalNodeId) {
+                return { error: `Could not find connection from node: ${promotion.name}` };
+            }
+            connectingLocalNodeId = connection.targetLocalNodeId;
+        }
+
+        // Create the project node
+        const [ newProjectNode ] = await db.insert(schema.nodes).values({
+            projectId,
+            name: localNode.name,
+            value: numValue
+        }).returning({ id: schema.nodes.id });
+
+        // Create a scenarioNode reference linking the project node to the OTHER local node
+        // Preserve the display order from the original connection
+        await db.insert(schema.scenarioNodes).values({
+            scenarioId,
+            nodeId: newProjectNode.id,
+            connectingLocalNodeId,
+            direction,
+            displayOrder: connection.displayOrder
+        });
+
+        // Delete the original direct connection
+        await db.delete(schema.connections).where(eq(schema.connections.id, connection.id));
+
+        // Delete the promoted local node (it's now represented by the project node)
+        await db.delete(schema.scenarioLocalNodes).where(eq(schema.scenarioLocalNodes.id, localNodeIdNum));
+    }
 
     await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
 
@@ -797,21 +829,15 @@ export async function handleAddLocalNodesToGroup(ctx: ActionContext): Promise<Ac
 
     const localNodeIdsJson = formData.get('localNodeIds');
     const groupIdStr = formData.get('groupId');
-    const value = formData.get('value');
 
-    if (typeof localNodeIdsJson !== 'string' || typeof groupIdStr !== 'string' || typeof value !== 'string') {
-        return { error: 'Local node IDs, group ID, and value are required' };
+    if (typeof localNodeIdsJson !== 'string' || typeof groupIdStr !== 'string') {
+        return { error: 'Local node IDs and group ID are required' };
     }
 
     const groupId = parseInt(groupIdStr, 10);
-    const numValue = parseFloat(value);
 
     if (isNaN(groupId)) {
         return { error: 'Invalid group ID' };
-    }
-
-    if (isNaN(numValue) || numValue <= 0) {
-        return { error: 'Value must be a positive number' };
     }
 
     let localNodeIds: number[];
@@ -838,9 +864,7 @@ export async function handleAddLocalNodesToGroup(ctx: ActionContext): Promise<Ac
 
     // Get the local nodes
     const localNodes = await db.query.scenarioLocalNodes.findMany({
-        where: and(
-            eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
-        )
+        where: eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
     });
 
     const nodesToAdd = localNodes.filter(n => localNodeIds.includes(n.id));
@@ -849,14 +873,108 @@ export async function handleAddLocalNodesToGroup(ctx: ActionContext): Promise<Ac
         return { error: 'No valid local nodes found' };
     }
 
-    // Add each local node as a connection to the group
+    // Get all connections in this scenario
+    const scenarioConnections = await db.query.connections.findMany({
+        where: eq(schema.connections.scenarioId, scenarioId)
+    });
+
+    // Check if this group already has a reference in this scenario
+    const existingGroupRef = await db.query.scenarioGroups.findFirst({
+        where: and(
+            eq(schema.scenarioGroups.scenarioId, scenarioId),
+            eq(schema.scenarioGroups.groupId, groupId)
+        )
+    });
+
+    // For each node, find its connection and determine the connecting local node
+    let connectingLocalNodeId: number | null = null;
+    let direction: 'source' | 'target' | null = null;
+    let minDisplayOrder = Number.MAX_SAFE_INTEGER;
+    const nodeConnections: Array<
+        { localNode: typeof nodesToAdd[0]; connection: typeof scenarioConnections[0]; value: number }
+    > = [];
+
     for (const localNode of nodesToAdd) {
+        // Find the single connection for this local node
+        const incomingConn = scenarioConnections.find(c => c.targetLocalNodeId === localNode.id);
+        const outgoingConn = scenarioConnections.find(c => c.sourceLocalNodeId === localNode.id);
+
+        let connection: typeof scenarioConnections[0] | undefined;
+        let nodeDirection: 'source' | 'target';
+        let nodeConnectingId: number;
+
+        if (incomingConn && !outgoingConn) {
+            // LocalNode receives flow FROM connecting node
+            // So connecting node is the SOURCE, group defines targets
+            connection = incomingConn;
+            nodeDirection = 'source';
+            nodeConnectingId = incomingConn.sourceLocalNodeId!;
+        } else if (outgoingConn && !incomingConn) {
+            // LocalNode sends flow TO connecting node
+            // So connecting node is the TARGET, group defines sources
+            connection = outgoingConn;
+            nodeDirection = 'target';
+            nodeConnectingId = outgoingConn.targetLocalNodeId!;
+        } else {
+            return {
+                error: `Local node "${localNode.name}" has multiple or no connections and cannot be added to a group`
+            };
+        }
+
+        // Verify all nodes connect to the same node with the same direction
+        if (connectingLocalNodeId === null) {
+            connectingLocalNodeId = nodeConnectingId;
+            direction = nodeDirection;
+        } else if (connectingLocalNodeId !== nodeConnectingId || direction !== nodeDirection) {
+            return { error: 'All selected nodes must connect to the same node in the same direction' };
+        }
+
+        // If group already has a reference, verify direction matches
+        if (existingGroupRef && existingGroupRef.direction !== nodeDirection) {
+            return {
+                error:
+                    `Cannot add nodes with direction "${nodeDirection}" to a group that is already referenced with direction "${existingGroupRef.direction}"`
+            };
+        }
+
+        minDisplayOrder = Math.min(minDisplayOrder, connection.displayOrder);
+        const value = connection.value > 0 ? connection.value : 1;
+        nodeConnections.push({ localNode, connection, value });
+    }
+
+    if (connectingLocalNodeId === null || direction === null) {
+        return { error: 'Could not determine connection direction' };
+    }
+
+    // Add each local node as a connection to the group
+    for (const { localNode, value } of nodeConnections) {
         await db.insert(schema.connections).values({
             groupId,
             source: localNode.name,
             target: localNode.name,
-            value: numValue
+            value
         });
+    }
+
+    // Create the scenario group reference if it doesn't exist
+    if (!existingGroupRef) {
+        await db.insert(schema.scenarioGroups).values({
+            scenarioId,
+            groupId,
+            connectingLocalNodeId,
+            direction,
+            displayOrder: minDisplayOrder
+        });
+    }
+
+    // Delete the original direct connections
+    for (const { connection } of nodeConnections) {
+        await db.delete(schema.connections).where(eq(schema.connections.id, connection.id));
+    }
+
+    // Delete the local nodes that are now part of the group
+    for (const { localNode } of nodeConnections) {
+        await db.delete(schema.scenarioLocalNodes).where(eq(schema.scenarioLocalNodes.id, localNode.id));
     }
 
     await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
@@ -870,20 +988,13 @@ export async function handleAddLocalNodesToNewGroup(ctx: ActionContext): Promise
 
     const localNodeIdsJson = formData.get('localNodeIds');
     const groupName = formData.get('groupName');
-    const value = formData.get('value');
 
-    if (typeof localNodeIdsJson !== 'string' || typeof groupName !== 'string' || typeof value !== 'string') {
-        return { error: 'Local node IDs, group name, and value are required' };
+    if (typeof localNodeIdsJson !== 'string' || typeof groupName !== 'string') {
+        return { error: 'Local node IDs and group name are required' };
     }
 
     if (!groupName.trim()) {
         return { error: 'Group name is required' };
-    }
-
-    const numValue = parseFloat(value);
-
-    if (isNaN(numValue) || numValue <= 0) {
-        return { error: 'Value must be a positive number' };
     }
 
     let localNodeIds: number[];
@@ -907,6 +1018,64 @@ export async function handleAddLocalNodesToNewGroup(ctx: ActionContext): Promise
         return { error: 'No valid local nodes found' };
     }
 
+    // Get all connections in this scenario
+    const scenarioConnections = await db.query.connections.findMany({
+        where: eq(schema.connections.scenarioId, scenarioId)
+    });
+
+    // For each node, find its connection and determine the connecting local node
+    // All nodes being added to a group should have the same connecting node and direction
+    let connectingLocalNodeId: number | null = null;
+    let direction: 'source' | 'target' | null = null;
+    let minDisplayOrder = Number.MAX_SAFE_INTEGER;
+    const nodeConnections: Array<
+        { localNode: typeof nodesToAdd[0]; connection: typeof scenarioConnections[0]; value: number }
+    > = [];
+
+    for (const localNode of nodesToAdd) {
+        // Find the single connection for this local node
+        const incomingConn = scenarioConnections.find(c => c.targetLocalNodeId === localNode.id);
+        const outgoingConn = scenarioConnections.find(c => c.sourceLocalNodeId === localNode.id);
+
+        let connection: typeof scenarioConnections[0] | undefined;
+        let nodeDirection: 'source' | 'target';
+        let nodeConnectingId: number;
+
+        if (incomingConn && !outgoingConn) {
+            // LocalNode receives flow FROM connecting node
+            // So connecting node is the SOURCE, group defines targets
+            connection = incomingConn;
+            nodeDirection = 'source';
+            nodeConnectingId = incomingConn.sourceLocalNodeId!;
+        } else if (outgoingConn && !incomingConn) {
+            // LocalNode sends flow TO connecting node
+            // So connecting node is the TARGET, group defines sources
+            connection = outgoingConn;
+            nodeDirection = 'target';
+            nodeConnectingId = outgoingConn.targetLocalNodeId!;
+        } else {
+            return {
+                error: `Local node "${localNode.name}" has multiple or no connections and cannot be added to a group`
+            };
+        }
+
+        // Verify all nodes connect to the same node with the same direction
+        if (connectingLocalNodeId === null) {
+            connectingLocalNodeId = nodeConnectingId;
+            direction = nodeDirection;
+        } else if (connectingLocalNodeId !== nodeConnectingId || direction !== nodeDirection) {
+            return { error: 'All selected nodes must connect to the same node in the same direction' };
+        }
+
+        minDisplayOrder = Math.min(minDisplayOrder, connection.displayOrder);
+        const value = connection.value > 0 ? connection.value : 1;
+        nodeConnections.push({ localNode, connection, value });
+    }
+
+    if (connectingLocalNodeId === null || direction === null) {
+        return { error: 'Could not determine connection direction' };
+    }
+
     // Create the new group
     const [ newGroup ] = await db.insert(schema.groups).values({
         projectId,
@@ -914,13 +1083,32 @@ export async function handleAddLocalNodesToNewGroup(ctx: ActionContext): Promise
     }).returning({ id: schema.groups.id });
 
     // Add each local node as a connection to the new group
-    for (const localNode of nodesToAdd) {
+    for (const { localNode, value } of nodeConnections) {
         await db.insert(schema.connections).values({
             groupId: newGroup.id,
             source: localNode.name,
             target: localNode.name,
-            value: numValue
+            value
         });
+    }
+
+    // Create the scenario group reference
+    await db.insert(schema.scenarioGroups).values({
+        scenarioId,
+        groupId: newGroup.id,
+        connectingLocalNodeId,
+        direction,
+        displayOrder: minDisplayOrder
+    });
+
+    // Delete the original direct connections
+    for (const { connection } of nodeConnections) {
+        await db.delete(schema.connections).where(eq(schema.connections.id, connection.id));
+    }
+
+    // Delete the local nodes that are now part of the group
+    for (const { localNode } of nodeConnections) {
+        await db.delete(schema.scenarioLocalNodes).where(eq(schema.scenarioLocalNodes.id, localNode.id));
     }
 
     await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
