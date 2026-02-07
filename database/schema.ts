@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, real, text, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { integer, pgTable, real, text, timestamp, unique, varchar } from 'drizzle-orm/pg-core';
 
 // Projects - top level container for scenarios
 export const projects = pgTable('projects', {
@@ -31,7 +31,27 @@ export const scenariosRelations = relations(scenarios, ({ one, many }) => ({
         fields: [ scenarios.projectId ],
         references: [ projects.id ]
     }),
+    localNodes: many(scenarioLocalNodes),
     connections: many(connections),
+    groupReferences: many(scenarioGroups),
+    nodeReferences: many(scenarioNodes)
+}));
+
+// Local nodes within a scenario - these are named nodes that exist only in this scenario
+// Editing the name here updates it everywhere it's used in the scenario
+export const scenarioLocalNodes = pgTable('scenario_local_nodes', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    scenarioId: integer().notNull().references(() => scenarios.id, { onDelete: 'cascade' }),
+    name: varchar({ length: 255 }).notNull()
+}, table => [ unique().on(table.scenarioId, table.name) ]);
+
+export const scenarioLocalNodesRelations = relations(scenarioLocalNodes, ({ one, many }) => ({
+    scenario: one(scenarios, {
+        fields: [ scenarioLocalNodes.scenarioId ],
+        references: [ scenarios.id ]
+    }),
+    connectionsAsSource: many(connections, { relationName: 'sourceLocalNode' }),
+    connectionsAsTarget: many(connections, { relationName: 'targetLocalNode' }),
     groupReferences: many(scenarioGroups),
     nodeReferences: many(scenarioNodes)
 }));
@@ -56,14 +76,20 @@ export const groupsRelations = relations(groups, ({ one, many }) => ({
 }));
 
 // Connections - can belong to either a scenario OR a group (not both)
-// source -> target with a value
+// For scenario connections: sourceLocalNodeId and targetLocalNodeId reference local nodes
+// For group connections: source and target are plain strings (group templates)
 export const connections = pgTable('connections', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().references(() => scenarios.id, { onDelete: 'cascade' }),
     groupId: integer().references(() => groups.id, { onDelete: 'cascade' }),
-    source: varchar({ length: 255 }).notNull(),
-    target: varchar({ length: 255 }).notNull(),
+    // For scenario connections - reference local nodes
+    sourceLocalNodeId: integer().references(() => scenarioLocalNodes.id, { onDelete: 'cascade' }),
+    targetLocalNodeId: integer().references(() => scenarioLocalNodes.id, { onDelete: 'cascade' }),
+    // For group connections - plain strings (templates)
+    source: varchar({ length: 255 }),
+    target: varchar({ length: 255 }),
     value: real().notNull(),
+    displayOrder: integer().notNull().default(0),
     createdAt: timestamp().defaultNow().notNull()
 });
 
@@ -75,19 +101,30 @@ export const connectionsRelations = relations(connections, ({ one }) => ({
     group: one(groups, {
         fields: [ connections.groupId ],
         references: [ groups.id ]
+    }),
+    sourceLocalNode: one(scenarioLocalNodes, {
+        fields: [ connections.sourceLocalNodeId ],
+        references: [ scenarioLocalNodes.id ],
+        relationName: 'sourceLocalNode'
+    }),
+    targetLocalNode: one(scenarioLocalNodes, {
+        fields: [ connections.targetLocalNodeId ],
+        references: [ scenarioLocalNodes.id ],
+        relationName: 'targetLocalNode'
     })
 }));
 
 // Junction table: links scenarios to groups they use
-// The connectingNode is what the group connects TO or FROM in this scenario
-// direction: "source" means connectingNode → [group nodes] (group defines targets)
-// direction: "target" means [group nodes] → connectingNode (group defines sources)
+// The connectingLocalNodeId references which local node the group connects TO or FROM
+// direction: "source" means localNode → [group nodes] (group defines targets)
+// direction: "target" means [group nodes] → localNode (group defines sources)
 export const scenarioGroups = pgTable('scenario_groups', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().notNull().references(() => scenarios.id, { onDelete: 'cascade' }),
     groupId: integer().notNull().references(() => groups.id, { onDelete: 'cascade' }),
-    connectingNode: varchar({ length: 255 }).notNull(),
-    direction: varchar({ length: 10 }).notNull().default('source') // 'source' or 'target'
+    connectingLocalNodeId: integer().notNull().references(() => scenarioLocalNodes.id, { onDelete: 'cascade' }),
+    direction: varchar({ length: 10 }).notNull().default('source'), // 'source' or 'target'
+    displayOrder: integer().notNull().default(0)
 });
 
 export const scenarioGroupsRelations = relations(scenarioGroups, ({ one }) => ({
@@ -98,6 +135,10 @@ export const scenarioGroupsRelations = relations(scenarioGroups, ({ one }) => ({
     group: one(groups, {
         fields: [ scenarioGroups.groupId ],
         references: [ groups.id ]
+    }),
+    connectingLocalNode: one(scenarioLocalNodes, {
+        fields: [ scenarioGroups.connectingLocalNodeId ],
+        references: [ scenarioLocalNodes.id ]
     })
 }));
 
@@ -121,15 +162,16 @@ export const nodesRelations = relations(nodes, ({ one, many }) => ({
 }));
 
 // Junction table: links scenarios to nodes they use
-// connectingNode is what this node connects TO or FROM
-// direction: "source" means this node is the source (node → connectingNode)
-// direction: "target" means this node is the target (connectingNode → node)
+// connectingLocalNodeId references which local node this connects TO or FROM
+// direction: "source" means this node is the source (node → localNode)
+// direction: "target" means this node is the target (localNode → node)
 export const scenarioNodes = pgTable('scenario_nodes', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().notNull().references(() => scenarios.id, { onDelete: 'cascade' }),
     nodeId: integer().notNull().references(() => nodes.id, { onDelete: 'cascade' }),
-    connectingNode: varchar({ length: 255 }).notNull(),
-    direction: varchar({ length: 10 }).notNull().default('target') // 'source' or 'target'
+    connectingLocalNodeId: integer().notNull().references(() => scenarioLocalNodes.id, { onDelete: 'cascade' }),
+    direction: varchar({ length: 10 }).notNull().default('target'), // 'source' or 'target'
+    displayOrder: integer().notNull().default(0)
 });
 
 export const scenarioNodesRelations = relations(scenarioNodes, ({ one }) => ({
@@ -140,5 +182,9 @@ export const scenarioNodesRelations = relations(scenarioNodes, ({ one }) => ({
     node: one(nodes, {
         fields: [ scenarioNodes.nodeId ],
         references: [ nodes.id ]
+    }),
+    connectingLocalNode: one(scenarioLocalNodes, {
+        fields: [ scenarioNodes.connectingLocalNodeId ],
+        references: [ scenarioLocalNodes.id ]
     })
 }));

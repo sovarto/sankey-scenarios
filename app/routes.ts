@@ -13,7 +13,6 @@ export default [
         // Scenarios nested under projects
         route(':projectId/scenarios/new', 'routes/scenarios/new.tsx'),
         route(':projectId/scenarios/:scenarioId', 'routes/scenarios/view.tsx'),
-        route(':projectId/scenarios/:scenarioId/edit', 'routes/scenarios/edit.tsx'),
 
         // Groups nested under projects
         route(':projectId/groups', 'routes/groups/index.tsx'),
