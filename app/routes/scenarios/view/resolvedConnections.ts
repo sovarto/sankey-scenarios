@@ -16,6 +16,8 @@ export interface ResolvedConnection {
     targetNodeColor?: string;
     /** Placeholder type: 'missing' or 'remaining' - value will be calculated */
     placeholderType?: 'missing' | 'remaining' | null;
+    /** Auto value: if true, value is calculated as total incoming to the source node */
+    autoValue?: boolean;
     fromGroup?: string;
     fromNode?: string;
 }
@@ -38,6 +40,7 @@ export type ScenarioWithRelations = {
         value: number;
         displayOrder: number;
         placeholderType?: string | null;
+        autoValue?: number | null;
         source?: string | null;
         target?: string | null;
         sourceLocalNode?: { id: number; name: string } | null;
@@ -105,12 +108,14 @@ function resolveDirectConnection(conn: ScenarioWithRelations['connections'][numb
     const placeholderType = conn.placeholderType === 'missing' || conn.placeholderType === 'remaining'
         ? conn.placeholderType
         : null;
+    const autoValue = conn.autoValue === 1;
 
     return [ {
         source: sourceName,
         target: targetName,
         value: conn.value,
-        placeholderType
+        placeholderType,
+        autoValue: autoValue || undefined
     } ];
 }
 
@@ -205,18 +210,42 @@ function resolveNodeReference(nodeRef: ScenarioWithRelations['nodeReferences'][n
  * - If incoming > outgoing: add an outgoing flow to "Remaining" (greenish)
  * - If outgoing > incoming: add an incoming flow from "Missing" (reddish)
  *
+ * Also resolves auto-value connections where the value is calculated as the
+ * total incoming to the source node.
+ *
  * User-defined placeholders keep their exact position in the list.
  * Auto-generated balancing flows are inserted after the last connection involving the node.
  */
 export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedConnection[] {
-    // Calculate incoming and outgoing totals for each node (only from real connections)
-    // Also track the last index where each node appears as source/target in the ORIGINAL array
-    const nodeBalance = new Map<string, { incoming: number; outgoing: number }>();
-    const lastSourceIndex = new Map<string, number>(); // Last original index where node is source
-    const lastTargetIndex = new Map<string, number>(); // Last original index where node is target
+    // First pass: Calculate incoming totals for each node (excluding placeholders and auto-value connections)
+    // This is needed to resolve auto-value connections
+    const nodeIncoming = new Map<string, number>();
 
-    for (let i = 0; i < connections.length; i++) {
-        const conn = connections[i];
+    for (const conn of connections) {
+        if (conn.placeholderType || conn.autoValue) {
+            continue; // Skip placeholders and auto-value for initial calculation
+        }
+
+        // Update target node incoming
+        nodeIncoming.set(conn.target, (nodeIncoming.get(conn.target) ?? 0) + conn.value);
+    }
+
+    // Resolve auto-value connections by setting their value to the source's total incoming
+    const resolvedConnections = connections.map(conn => {
+        if (conn.autoValue) {
+            const sourceIncoming = nodeIncoming.get(conn.source) ?? 0;
+            return { ...conn, value: sourceIncoming };
+        }
+        return conn;
+    });
+
+    // Second pass: Calculate full balance for each node (excluding placeholders)
+    const nodeBalance = new Map<string, { incoming: number; outgoing: number }>();
+    const lastSourceIndex = new Map<string, number>();
+    const lastTargetIndex = new Map<string, number>();
+
+    for (let i = 0; i < resolvedConnections.length; i++) {
+        const conn = resolvedConnections[i];
         if (conn.placeholderType) {
             continue; // Skip placeholders for balance calculation
         }
@@ -256,8 +285,8 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
     // Build result array - process connections in order, converting placeholders in place
     const result: ResolvedConnection[] = [];
 
-    for (let i = 0; i < connections.length; i++) {
-        const conn = connections[i];
+    for (let i = 0; i < resolvedConnections.length; i++) {
+        const conn = resolvedConnections[i];
 
         if (conn.placeholderType) {
             // User-defined placeholder - convert to balancing flow at this exact position
@@ -291,7 +320,7 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
                 // If placeholder type doesn't match what's needed, skip it silently
             }
         } else {
-            // Regular connection - add as-is
+            // Regular connection - add as-is (with resolved auto-value)
             result.push(conn);
         }
     }
@@ -306,7 +335,7 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
 
         if (diff > 0) {
             // Need Remaining flow - insert after last outgoing
-            const insertAfter = lastSourceIndex.get(nodeName) ?? connections.length - 1;
+            const insertAfter = lastSourceIndex.get(nodeName) ?? resolvedConnections.length - 1;
             autoFlows.push({
                 flow: {
                     source: nodeName,
@@ -320,7 +349,7 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
             });
         } else if (diff < 0) {
             // Need Missing flow - insert after last incoming
-            const insertAfter = lastTargetIndex.get(nodeName) ?? connections.length - 1;
+            const insertAfter = lastTargetIndex.get(nodeName) ?? resolvedConnections.length - 1;
             autoFlows.push({
                 flow: {
                     source: `_Missing_${nodeName}`,
@@ -339,11 +368,11 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
     // (accounting for skipped placeholders that didn't match their node's needs)
     const originalToResultIndex: number[] = [];
     let resultIdx = 0;
-    for (let i = 0; i < connections.length; i++) {
-        if (connections[i].placeholderType) {
-            const nodeName = connections[i].placeholderType === 'remaining'
-                ? connections[i].source
-                : connections[i].target;
+    for (let i = 0; i < resolvedConnections.length; i++) {
+        if (resolvedConnections[i].placeholderType) {
+            const nodeName = resolvedConnections[i].placeholderType === 'remaining'
+                ? resolvedConnections[i].source
+                : resolvedConnections[i].target;
             if (handledNodes.has(nodeName)) {
                 originalToResultIndex.push(resultIdx);
                 resultIdx++;
@@ -377,18 +406,23 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
 }
 
 /**
- * Extract existing placeholder connections for form validation
+ * Extract existing placeholder and auto connections for form validation
+ * - 'missing': target node already has a Missing placeholder
+ * - 'remaining': source node already has a Remaining placeholder
+ * - 'auto': source node already has an Auto connection
  */
 export function getExistingPlaceholders(
     scenario: ScenarioWithRelations,
-): Array<{ nodeName: string; type: 'missing' | 'remaining' }> {
-    const placeholders: Array<{ nodeName: string; type: 'missing' | 'remaining' }> = [];
+): Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }> {
+    const placeholders: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }> = [];
 
     for (const conn of scenario.connections) {
         if (conn.placeholderType === 'remaining' && conn.sourceLocalNode) {
-            placeholders.push({ nodeName: conn.sourceLocalNode.name, type: 'remaining' });
+            placeholders.push({ nodeName: conn.sourceLocalNode.name, type: 'remaining', connectionId: conn.id });
         } else if (conn.placeholderType === 'missing' && conn.targetLocalNode) {
-            placeholders.push({ nodeName: conn.targetLocalNode.name, type: 'missing' });
+            placeholders.push({ nodeName: conn.targetLocalNode.name, type: 'missing', connectionId: conn.id });
+        } else if (conn.autoValue === 1 && conn.sourceLocalNode) {
+            placeholders.push({ nodeName: conn.sourceLocalNode.name, type: 'auto', connectionId: conn.id });
         }
     }
 

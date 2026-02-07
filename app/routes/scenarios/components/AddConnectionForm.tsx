@@ -12,14 +12,14 @@ export function AddConnectionForm({
     groups: Array<{ id: number; name: string }>;
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
-    /** Existing placeholder connections to prevent duplicates: { nodeName, type: 'missing' | 'remaining' } */
-    existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' }>;
+    /** Existing placeholder/auto connections to prevent duplicates */
+    existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
 }) {
     const [ source, setSource ] = useState<ComboboxOption | null>(null);
     const [ target, setTarget ] = useState<ComboboxOption | null>(null);
     const [ value, setValue ] = useState('');
     const [ showGroupNode, setShowGroupNode ] = useState(false);
-    const [ placeholderType, setPlaceholderType ] = useState<'none' | 'missing' | 'remaining'>('none');
+    const [ placeholderType, setPlaceholderType ] = useState<'none' | 'auto' | 'missing' | 'remaining'>('none');
     const fetcher = useFetcher();
 
     // Build options list
@@ -79,7 +79,7 @@ export function AddConnectionForm({
         return allOptions;
     }, [ allOptions, source ]);
 
-    // Check if placeholder already exists for the selected node
+    // Check if placeholder/auto already exists for the selected node
     const placeholderConflict = useMemo(() => {
         if (placeholderType === 'none' || !existingPlaceholders) {
             return null;
@@ -94,12 +94,19 @@ export function AddConnectionForm({
             }
         }
 
-        if (placeholderType === 'remaining' && source?.type === 'local') {
-            const existing = existingPlaceholders.find(
+        // Auto and Remaining are mutually exclusive per source node
+        if ((placeholderType === 'remaining' || placeholderType === 'auto') && source?.type === 'local') {
+            const existingRemaining = existingPlaceholders.find(
                 p => p.nodeName === source.name && p.type === 'remaining'
             );
-            if (existing) {
-                return `A "Remaining" placeholder already exists for "${source.name}"`;
+            const existingAuto = existingPlaceholders.find(
+                p => p.nodeName === source.name && p.type === 'auto'
+            );
+            if (existingRemaining) {
+                return `"${source.name}" already has a Remaining connection`;
+            }
+            if (existingAuto) {
+                return `"${source.name}" already has an Auto connection`;
             }
         }
 
@@ -137,8 +144,10 @@ export function AddConnectionForm({
 
         // Value is only needed for direct connections without placeholder
         if (source.type === 'local' && target.type === 'local') {
-            if (placeholderType !== 'none') {
+            if (placeholderType === 'missing' || placeholderType === 'remaining') {
                 formData.placeholderType = placeholderType;
+            } else if (placeholderType === 'auto') {
+                formData.autoValue = '1';
             } else {
                 formData.value = value;
             }
@@ -158,9 +167,10 @@ export function AddConnectionForm({
     const isValueHidden = !isDirectConnection || placeholderType !== 'none';
     const isGroupRef = source?.type === 'group' || target?.type === 'group';
 
-    // Validation
+    // Validation - auto and placeholders don't need a value
+    const needsValue = isDirectConnection && placeholderType === 'none';
     const isValid = source && target && !placeholderConflict
-        && (isValueHidden || (value !== '' && parseFloat(value) > 0));
+        && (!needsValue || (value !== '' && parseFloat(value) > 0));
 
     return (
         <div className='border-t pt-4'>
@@ -195,7 +205,7 @@ export function AddConnectionForm({
 
                 {/* Placeholder options - only for local-to-local connections */}
                 {isDirectConnection && (
-                    <div className='flex gap-4'>
+                    <div className='flex flex-wrap gap-4'>
                         <label className='flex items-center gap-2 text-sm text-gray-700'>
                             <input
                                 type='radio'
@@ -204,7 +214,17 @@ export function AddConnectionForm({
                                 onChange={() => setPlaceholderType('none')}
                                 className='text-blue-600 focus:ring-blue-500'
                             />
-                            Regular connection
+                            Regular
+                        </label>
+                        <label className='flex items-center gap-2 text-sm text-blue-700'>
+                            <input
+                                type='radio'
+                                name='placeholderType'
+                                checked={placeholderType === 'auto'}
+                                onChange={() => setPlaceholderType('auto')}
+                                className='text-blue-600 focus:ring-blue-500'
+                            />
+                            Auto (full source value)
                         </label>
                         <label className='flex items-center gap-2 text-sm text-red-700'>
                             <input
@@ -214,7 +234,7 @@ export function AddConnectionForm({
                                 onChange={() => setPlaceholderType('missing')}
                                 className='text-red-600 focus:ring-red-500'
                             />
-                            Source provides "Missing" for Target
+                            Missing
                         </label>
                         <label className='flex items-center gap-2 text-sm text-green-700'>
                             <input
@@ -224,7 +244,7 @@ export function AddConnectionForm({
                                 onChange={() => setPlaceholderType('remaining')}
                                 className='text-green-600 focus:ring-green-500'
                             />
-                            Target receives "Remaining" from Source
+                            Remaining
                         </label>
                     </div>
                 )}

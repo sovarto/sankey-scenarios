@@ -11,6 +11,8 @@ export interface ConnectionRowData {
     displayOrder: number;
     // For direct connections - placeholder type
     placeholderType?: 'missing' | 'remaining' | null;
+    // For direct connections - auto value (value = total incoming to source node)
+    autoValue?: boolean;
     // For references
     refName?: string;
     refId?: number;

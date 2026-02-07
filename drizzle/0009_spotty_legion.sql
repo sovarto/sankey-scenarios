@@ -1,0 +1,1 @@
+ALTER TABLE "connections" ADD COLUMN "autoValue" integer DEFAULT 0 NOT NULL;

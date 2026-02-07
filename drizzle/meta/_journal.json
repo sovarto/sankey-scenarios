@@ -64,6 +64,13 @@
       "when": 1770430599285,
       "tag": "0008_odd_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1770452388946,
+      "tag": "0009_spotty_legion",
+      "breakpoints": true
     }
   ]
 }

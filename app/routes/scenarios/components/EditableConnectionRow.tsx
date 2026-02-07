@@ -14,6 +14,7 @@ interface EditableConnectionRowProps {
     onDragStart?: (e: React.DragEvent) => void;
     onDragOver?: (e: React.DragEvent) => void;
     onDragEnd?: () => void;
+    existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
 }
 
 export function EditableConnectionRow({
@@ -27,6 +28,7 @@ export function EditableConnectionRow({
     onDragStart,
     onDragOver,
     onDragEnd,
+    existingPlaceholders,
 }: EditableConnectionRowProps) {
     const [ editingField, setEditingField ] = useState<'source' | 'target' | 'value' | null>(null);
     const [ editSource, setEditSource ] = useState<ComboboxOption | null>(null);
@@ -39,6 +41,7 @@ export function EditableConnectionRow({
     const [ placeholderType, setPlaceholderType ] = useState<'missing' | 'remaining' | null>(
         row.placeholderType ?? null
     );
+    const [ autoValue, setAutoValue ] = useState(row.autoValue ?? false);
     const fetcher = useFetcher();
 
     // Sync display values when row changes from server
@@ -61,6 +64,28 @@ export function EditableConnectionRow({
     useEffect(() => {
         setPlaceholderType(row.placeholderType ?? null);
     }, [ row.placeholderType ]);
+
+    useEffect(() => {
+        setAutoValue(row.autoValue ?? false);
+    }, [ row.autoValue ]);
+
+    // Check if another connection from this source already has auto/remaining
+    // (excluding the current connection)
+    const sourceHasOtherAutoOrRemaining = useMemo(() => {
+        if (!existingPlaceholders || row.type !== 'direct') {
+            return { auto: false, remaining: false };
+        }
+        const source = displaySource;
+        return {
+            auto: existingPlaceholders.some(p =>
+                p.nodeName === source && p.type === 'auto' && p.connectionId !== row.id
+            ),
+            remaining: existingPlaceholders.some(p =>
+                p.nodeName === source && p.type === 'remaining' && p.connectionId !== row.id
+            )
+        };
+    }, [ existingPlaceholders, displaySource, row.id, row.type ]);
+
     // Build options list (same logic as AddConnectionForm)
     const allOptions: ComboboxOption[] = useMemo(() => {
         const opts: ComboboxOption[] = [];
@@ -249,11 +274,30 @@ export function EditableConnectionRow({
     // Update placeholder type
     const handlePlaceholderTypeChange = (type: 'missing' | 'remaining' | null) => {
         setPlaceholderType(type); // Optimistic update
+        if (type) {
+            setAutoValue(false); // Clear autoValue when setting a placeholder type
+        }
         void fetcher.submit(
             {
                 intent: 'update-connection-placeholder-type',
                 connectionId: row.id.toString(),
                 placeholderType: type ?? ''
+            },
+            { method: 'post' }
+        );
+    };
+
+    // Toggle auto value
+    const handleAutoValueChange = (checked: boolean) => {
+        setAutoValue(checked); // Optimistic update
+        if (checked) {
+            setPlaceholderType(null); // Clear placeholder when setting auto value
+        }
+        void fetcher.submit(
+            {
+                intent: 'update-connection-auto-value',
+                connectionId: row.id.toString(),
+                autoValue: checked ? '1' : '0'
             },
             { method: 'post' }
         );
@@ -344,6 +388,11 @@ export function EditableConnectionRow({
             return <span className='text-gray-400 text-xs italic w-20 text-right'>auto</span>;
         }
 
+        // Auto value shows "auto" indicator
+        if (autoValue) {
+            return <span className='text-blue-500 text-xs italic w-20 text-right'>auto</span>;
+        }
+
         if (row.type === 'group-ref') {
             return null; // Groups don't have a single value
         }
@@ -413,11 +462,38 @@ export function EditableConnectionRow({
                         <input
                             type='radio'
                             name={`placeholder-${row.id}`}
-                            checked={!placeholderType}
-                            onChange={() => handlePlaceholderTypeChange(null)}
+                            checked={!placeholderType && !autoValue}
+                            onChange={() => {
+                                handlePlaceholderTypeChange(null);
+                                if (autoValue) {
+                                    handleAutoValueChange(false);
+                                }
+                            }}
                             className='w-3 h-3'
                         />
                         <span>Regular</span>
+                    </label>
+                    <label
+                        className={`flex items-center gap-1 ${
+                            sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-blue-600'
+                        }`}
+                        title={sourceHasOtherAutoOrRemaining.auto
+                            ? 'Source already has an Auto connection'
+                            : sourceHasOtherAutoOrRemaining.remaining
+                            ? 'Source already has a Remaining connection'
+                            : undefined}
+                    >
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={autoValue}
+                            onChange={() => handleAutoValueChange(true)}
+                            disabled={sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining}
+                            className='w-3 h-3'
+                        />
+                        <span>Auto</span>
                     </label>
                     <label className='flex items-center gap-1 text-red-600'>
                         <input
@@ -429,12 +505,24 @@ export function EditableConnectionRow({
                         />
                         <span>Missing</span>
                     </label>
-                    <label className='flex items-center gap-1 text-green-600'>
+                    <label
+                        className={`flex items-center gap-1 ${
+                            sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-green-600'
+                        }`}
+                        title={sourceHasOtherAutoOrRemaining.remaining
+                            ? 'Source already has a Remaining connection'
+                            : sourceHasOtherAutoOrRemaining.auto
+                            ? 'Source already has an Auto connection'
+                            : undefined}
+                    >
                         <input
                             type='radio'
                             name={`placeholder-${row.id}`}
                             checked={placeholderType === 'remaining'}
                             onChange={() => handlePlaceholderTypeChange('remaining')}
+                            disabled={sourceHasOtherAutoOrRemaining.auto || sourceHasOtherAutoOrRemaining.remaining}
                             className='w-3 h-3'
                         />
                         <span>Remaining</span>

@@ -137,11 +137,13 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
     }
 
     const placeholderType = formData.get('placeholderType');
+    const autoValueStr = formData.get('autoValue');
     const isPlaceholder = placeholderType === 'missing' || placeholderType === 'remaining';
+    const isAutoValue = autoValueStr === '1';
 
-    // Value is required for regular connections, ignored for placeholders
+    // Value is required for regular connections, ignored for placeholders and auto
     let numValue = 0;
-    if (!isPlaceholder) {
+    if (!isPlaceholder && !isAutoValue) {
         const value = formData.get('value');
         numValue = value ? parseFloat(value as string) : 0;
         if (isNaN(numValue) || numValue <= 0) {
@@ -157,7 +159,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
         sourceLocalNodeId,
         targetLocalNodeId,
         value: numValue,
-        placeholderType: isPlaceholder ? (placeholderType as string) : null
+        placeholderType: isPlaceholder ? (placeholderType as string) : null,
+        autoValue: isAutoValue ? 1 : 0
     });
 
     return { success: true };
@@ -212,6 +215,27 @@ export async function handleUpdateConnectionPlaceholderType(ctx: ActionContext):
 
     await db.update(schema.connections).set({
         placeholderType: typeValue
+    }).where(eq(schema.connections.id, parseInt(connectionId, 10)));
+
+    return { success: true };
+}
+
+export async function handleUpdateConnectionAutoValue(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const connectionId = formData.get('connectionId');
+    const autoValue = formData.get('autoValue');
+
+    if (typeof connectionId !== 'string') {
+        return { error: 'Invalid parameters' };
+    }
+
+    const autoValueInt = autoValue === '1' ? 1 : 0;
+
+    await db.update(schema.connections).set({
+        autoValue: autoValueInt,
+        // Clear placeholder type when setting auto value
+        placeholderType: autoValueInt === 1 ? null : undefined
     }).where(eq(schema.connections.id, parseInt(connectionId, 10)));
 
     return { success: true };

@@ -2,7 +2,7 @@ import { Form, Link, useFetcher, useLoaderData, useActionData } from 'react-rout
 import type { Route } from './+types/view';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
-import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup } from './view/actions.server';
+import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup } from './view/actions.server';
 import { loadScenarioView } from './view/loader.server';
 import { database } from '~/database/context';
 
@@ -51,6 +51,8 @@ export async function action({ request, params }: Route.ActionArgs) {
             return handleUpdateConnectionValue(ctx);
         case 'update-connection-placeholder-type':
             return handleUpdateConnectionPlaceholderType(ctx);
+        case 'update-connection-auto-value':
+            return handleUpdateConnectionAutoValue(ctx);
         case 'update-connection-source':
             return handleUpdateConnectionSource(ctx);
         case 'update-connection-target':
@@ -101,7 +103,8 @@ export default function ViewScenario({}: Route.ComponentProps) {
             targetLocalNodeId: conn.targetLocalNode?.id,
             value: conn.value,
             displayOrder: conn.displayOrder,
-            placeholderType: conn.placeholderType as 'missing' | 'remaining' | null | undefined
+            placeholderType: conn.placeholderType as 'missing' | 'remaining' | null | undefined,
+            autoValue: conn.autoValue === 1
         })),
         ...scenario.groupReferences.map(ref => ({
             type: 'group-ref' as const,
@@ -194,6 +197,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                         nodes={nodes}
                         localNodes={localNodes}
                         onDelete={handleDelete}
+                        existingPlaceholders={existingPlaceholders}
                     />
 
                     <AddConnectionForm
