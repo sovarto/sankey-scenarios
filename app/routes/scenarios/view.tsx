@@ -2,7 +2,7 @@ import { Form, Link, useFetcher, useLoaderData, useActionData } from 'react-rout
 import type { Route } from './+types/view';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
-import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections } from './view/actions.server';
+import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup } from './view/actions.server';
 import { loadScenarioView } from './view/loader.server';
 import { database } from '~/database/context';
 
@@ -65,6 +65,12 @@ export async function action({ request, params }: Route.ActionArgs) {
             return handleUpdateLocalNode(ctx);
         case 'reorder-connections':
             return handleReorderConnections(ctx);
+        case 'promote-to-project-node':
+            return handlePromoteToProjectNode(ctx);
+        case 'add-local-nodes-to-group':
+            return handleAddLocalNodesToGroup(ctx);
+        case 'add-local-nodes-to-new-group':
+            return handleAddLocalNodesToNewGroup(ctx);
         default:
             return { success: true };
     }
@@ -198,7 +204,16 @@ export default function ViewScenario({}: Route.ComponentProps) {
                     />
                 </section>
 
-                <LocalNodesPanel localNodes={localNodes} />
+                <LocalNodesPanel
+                    localNodes={localNodes}
+                    groups={groups}
+                    projectId={project.id}
+                    connections={scenario.connections.map(c => ({
+                        sourceLocalNodeId: c.sourceLocalNode?.id,
+                        targetLocalNodeId: c.targetLocalNode?.id,
+                        value: c.value
+                    }))}
+                />
 
                 <section className='bg-white rounded-lg shadow p-6 border border-red-200'>
                     <h2 className='text-lg font-semibold text-red-600 mb-4'>Danger Zone</h2>

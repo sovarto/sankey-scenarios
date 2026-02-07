@@ -634,3 +634,193 @@ export async function handleReorderConnections(ctx: ActionContext): Promise<Acti
         return { error: 'Invalid order data' };
     }
 }
+
+// ============================================================================
+// Local node promotion actions
+// ============================================================================
+
+export async function handlePromoteToProjectNode(ctx: ActionContext): Promise<ActionResult> {
+    const { db, projectId, scenarioId, formData } = ctx;
+
+    const localNodeId = formData.get('localNodeId');
+    const value = formData.get('value');
+
+    if (typeof localNodeId !== 'string' || typeof value !== 'string') {
+        return { error: 'Local node ID and value are required' };
+    }
+
+    const numValue = parseFloat(value);
+    if (isNaN(numValue) || numValue <= 0) {
+        return { error: 'Value must be a positive number' };
+    }
+
+    const localNode = await db.query.scenarioLocalNodes.findFirst({
+        where: and(
+            eq(schema.scenarioLocalNodes.id, parseInt(localNodeId, 10)),
+            eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
+        )
+    });
+
+    if (!localNode) {
+        return { error: 'Local node not found' };
+    }
+
+    // Check if a project node with this name already exists
+    const existingNode = await db.query.nodes.findFirst({
+        where: and(
+            eq(schema.nodes.projectId, projectId),
+            eq(schema.nodes.name, localNode.name)
+        )
+    });
+
+    if (existingNode) {
+        return { error: `A project node named "${localNode.name}" already exists` };
+    }
+
+    // Create the project node
+    const [ newProjectNode ] = await db.insert(schema.nodes).values({
+        projectId,
+        name: localNode.name,
+        value: numValue
+    }).returning({ id: schema.nodes.id });
+
+    await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
+
+    return { success: true };
+}
+
+export async function handleAddLocalNodesToGroup(ctx: ActionContext): Promise<ActionResult> {
+    const { db, projectId, scenarioId, formData } = ctx;
+
+    const localNodeIdsJson = formData.get('localNodeIds');
+    const groupIdStr = formData.get('groupId');
+    const value = formData.get('value');
+
+    if (typeof localNodeIdsJson !== 'string' || typeof groupIdStr !== 'string' || typeof value !== 'string') {
+        return { error: 'Local node IDs, group ID, and value are required' };
+    }
+
+    const groupId = parseInt(groupIdStr, 10);
+    const numValue = parseFloat(value);
+
+    if (isNaN(groupId)) {
+        return { error: 'Invalid group ID' };
+    }
+
+    if (isNaN(numValue) || numValue <= 0) {
+        return { error: 'Value must be a positive number' };
+    }
+
+    let localNodeIds: number[];
+    try {
+        localNodeIds = JSON.parse(localNodeIdsJson);
+        if (!Array.isArray(localNodeIds)) {
+            throw new Error('Invalid format');
+        }
+    } catch {
+        return { error: 'Invalid local node IDs format' };
+    }
+
+    // Verify the group belongs to this project
+    const group = await db.query.groups.findFirst({
+        where: and(
+            eq(schema.groups.id, groupId),
+            eq(schema.groups.projectId, projectId)
+        )
+    });
+
+    if (!group) {
+        return { error: 'Group not found' };
+    }
+
+    // Get the local nodes
+    const localNodes = await db.query.scenarioLocalNodes.findMany({
+        where: and(
+            eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
+        )
+    });
+
+    const nodesToAdd = localNodes.filter(n => localNodeIds.includes(n.id));
+
+    if (nodesToAdd.length === 0) {
+        return { error: 'No valid local nodes found' };
+    }
+
+    // Add each local node as a connection to the group
+    for (const localNode of nodesToAdd) {
+        await db.insert(schema.connections).values({
+            groupId,
+            source: localNode.name,
+            target: localNode.name,
+            value: numValue
+        });
+    }
+
+    await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
+    await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
+
+    return { success: true };
+}
+
+export async function handleAddLocalNodesToNewGroup(ctx: ActionContext): Promise<ActionResult> {
+    const { db, projectId, scenarioId, formData } = ctx;
+
+    const localNodeIdsJson = formData.get('localNodeIds');
+    const groupName = formData.get('groupName');
+    const value = formData.get('value');
+
+    if (typeof localNodeIdsJson !== 'string' || typeof groupName !== 'string' || typeof value !== 'string') {
+        return { error: 'Local node IDs, group name, and value are required' };
+    }
+
+    if (!groupName.trim()) {
+        return { error: 'Group name is required' };
+    }
+
+    const numValue = parseFloat(value);
+
+    if (isNaN(numValue) || numValue <= 0) {
+        return { error: 'Value must be a positive number' };
+    }
+
+    let localNodeIds: number[];
+    try {
+        localNodeIds = JSON.parse(localNodeIdsJson);
+        if (!Array.isArray(localNodeIds)) {
+            throw new Error('Invalid format');
+        }
+    } catch {
+        return { error: 'Invalid local node IDs format' };
+    }
+
+    // Get the local nodes
+    const localNodes = await db.query.scenarioLocalNodes.findMany({
+        where: eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
+    });
+
+    const nodesToAdd = localNodes.filter(n => localNodeIds.includes(n.id));
+
+    if (nodesToAdd.length === 0) {
+        return { error: 'No valid local nodes found' };
+    }
+
+    // Create the new group
+    const [ newGroup ] = await db.insert(schema.groups).values({
+        projectId,
+        name: groupName.trim()
+    }).returning({ id: schema.groups.id });
+
+    // Add each local node as a connection to the new group
+    for (const localNode of nodesToAdd) {
+        await db.insert(schema.connections).values({
+            groupId: newGroup.id,
+            source: localNode.name,
+            target: localNode.name,
+            value: numValue
+        });
+    }
+
+    await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
+
+    return { success: true };
+}
