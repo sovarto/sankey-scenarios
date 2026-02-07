@@ -116,6 +116,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
             sourceLocalNodeId: conn.sourceLocalNode?.id,
             targetLocalNodeId: conn.targetLocalNode?.id,
             value: conn.value,
+            valueType: (conn.valueType === 'percent' ? 'percent' : 'absolute') as 'absolute' | 'percent',
             displayOrder: conn.displayOrder,
             placeholderType: conn.placeholderType as 'missing' | 'remaining' | null | undefined,
             autoValue: conn.autoValue === 1
@@ -130,6 +131,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                 ? (ref.subNode ? `[${ref.group.name}.${ref.subNode}]` : `[${ref.group.name}]`)
                 : getLocalNodeName(ref.connectingLocalNode.id),
             value: ref.value ?? 0,
+            valueType: (ref.valueType === 'percent' ? 'percent' : 'absolute') as 'absolute' | 'percent',
             displayOrder: ref.displayOrder,
             refName: ref.group.name,
             refId: ref.group.id,

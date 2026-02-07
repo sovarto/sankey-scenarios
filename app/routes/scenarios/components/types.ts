@@ -1,5 +1,7 @@
 export type ConnectionRowType = 'direct' | 'node-ref' | 'group-ref';
 
+export type ValueType = 'absolute' | 'percent';
+
 export interface ConnectionRowData {
     type: ConnectionRowType;
     id: number;
@@ -8,6 +10,8 @@ export interface ConnectionRowData {
     sourceLocalNodeId?: number;
     targetLocalNodeId?: number;
     value: number;
+    // Value type: 'absolute' (default) = fixed number, 'percent' = percentage of total incoming to source node
+    valueType?: ValueType;
     displayOrder: number;
     // For direct connections and group-refs with subNode - placeholder type
     placeholderType?: 'missing' | 'remaining' | null;

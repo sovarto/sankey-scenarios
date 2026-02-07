@@ -159,6 +159,7 @@ export const groupsRelations = relations(groups, ({ one, many }) => ({
 // For group connections: source and target are plain strings (group templates)
 // placeholderType: null = regular connection, 'missing' = placeholder for Missing flow, 'remaining' = placeholder for Remaining flow
 // autoValue: if true, value is calculated as total incoming to the source node (only one auto connection per source allowed)
+// valueType: 'absolute' (default) = value is a fixed number, 'percent' = value is a percentage of total incoming to source node
 export const connections = pgTable('connections', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().references(() => scenarios.id, { onDelete: 'cascade' }),
@@ -170,6 +171,8 @@ export const connections = pgTable('connections', {
     source: varchar({ length: 255 }),
     target: varchar({ length: 255 }),
     value: real().notNull(),
+    // Value type: 'absolute' (default) = fixed number, 'percent' = percentage of total incoming to source node
+    valueType: varchar({ length: 20 }).notNull().default('absolute'),
     // Placeholder type for auto-balancing: 'missing' (source provides Missing), 'remaining' (target receives Remaining)
     placeholderType: varchar({ length: 20 }),
     // Auto value: if true, value is calculated as total incoming to the source node
@@ -204,7 +207,7 @@ export const connectionsRelations = relations(connections, ({ one }) => ({
 // direction: "source" means localNode → [group nodes] (group defines targets)
 // direction: "target" means [group nodes] → localNode (group defines sources)
 // subNode: optional - if set, only connect to this specific node within the group
-// When subNode is set, value/autoValue/placeholderType work like direct connections
+// When subNode is set, value/autoValue/placeholderType/valueType work like direct connections
 export const scenarioGroups = pgTable('scenario_groups', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().notNull().references(() => scenarios.id, { onDelete: 'cascade' }),
@@ -215,6 +218,8 @@ export const scenarioGroups = pgTable('scenario_groups', {
     subNode: varchar({ length: 255 }), // null = connect to all, otherwise specific node name within the group
     // When subNode is set, these work like direct connections:
     value: real(), // custom value - if null, uses sum of group connections for that subNode
+    // Value type: 'absolute' (default) = fixed number, 'percent' = percentage of total incoming to source node
+    valueType: varchar({ length: 20 }).notNull().default('absolute'),
     autoValue: integer().notNull().default(0), // 0 = false, 1 = true (calculate as total incoming)
     placeholderType: varchar({ length: 20 }), // 'remaining' - value will be calculated
     displayOrder: integer().notNull().default(0)

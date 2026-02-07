@@ -1,0 +1,2 @@
+ALTER TABLE "connections" ADD COLUMN "valueType" varchar(20) DEFAULT 'absolute' NOT NULL;--> statement-breakpoint
+ALTER TABLE "scenario_groups" ADD COLUMN "valueType" varchar(20) DEFAULT 'absolute' NOT NULL;

@@ -130,7 +130,10 @@ export function ConnectionRow({
                 <span className='font-medium text-gray-900'>{targetDisplay}</span>
             </div>
             {row.type !== 'group-ref' && !row.placeholderType && (
-                <span className='text-gray-600 font-mono text-sm w-20 text-right'>{row.value}</span>
+                <span className='text-gray-600 font-mono text-sm w-20 text-right'>
+                    {row.value}
+                    {row.valueType === 'percent' ? '%' : ''}
+                </span>
             )}
             {row.placeholderType && <span className='text-gray-400 italic text-xs w-20 text-right'>auto</span>}
             {getBadge()}

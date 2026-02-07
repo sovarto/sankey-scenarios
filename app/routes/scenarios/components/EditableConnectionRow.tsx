@@ -2,7 +2,21 @@ import { useState, useMemo, useEffect } from 'react';
 import { Link, useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber, formatLocaleNumber } from './numberUtils';
-import type { ComboboxOption, ConnectionRowData, GroupWithConnections } from './types';
+import type { ComboboxOption, ConnectionRowData, GroupWithConnections, ValueType } from './types';
+
+/** Parse value field to extract numeric value and whether it's a percentage */
+function parseEditValue(value: string, locale?: string): { numericValue: number; isPercent: boolean } {
+    const trimmed = value.trim().toLowerCase();
+
+    // Check for percentage suffix (%, p, or percent)
+    const percentMatch = trimmed.match(/^(.+?)(%|p|percent)$/);
+    if (percentMatch) {
+        const numPart = percentMatch[1].trim();
+        return { numericValue: parseLocaleNumber(numPart, locale), isPercent: true };
+    }
+
+    return { numericValue: parseLocaleNumber(value, locale), isPercent: false };
+}
 
 interface EditableConnectionRowProps {
     row: ConnectionRowData;
@@ -40,6 +54,7 @@ export function EditableConnectionRow({
     const [ displaySource, setDisplaySource ] = useState(row.source);
     const [ displayTarget, setDisplayTarget ] = useState(row.target);
     const [ displayValue, setDisplayValue ] = useState(row.value);
+    const [ valueType, setValueType ] = useState<'absolute' | 'percent'>(row.valueType ?? 'absolute');
     const [ showGroupNode, setShowGroupNode ] = useState(row.showGroupNode ?? false);
     const [ subNode, setSubNode ] = useState(row.subNode ?? null);
     const [ placeholderType, setPlaceholderType ] = useState<'missing' | 'remaining' | null>(
@@ -97,6 +112,10 @@ export function EditableConnectionRow({
     useEffect(() => {
         setAutoValue(row.autoValue ?? false);
     }, [ row.autoValue ]);
+
+    useEffect(() => {
+        setValueType(row.valueType ?? 'absolute');
+    }, [ row.valueType ]);
 
     // Check if another connection from this source already has auto/remaining
     // (excluding the current connection)
@@ -252,7 +271,8 @@ export function EditableConnectionRow({
         if (!canEditValue) {
             return;
         }
-        setEditValue(displayValue.toString());
+        // Include percentage suffix in edit value if this is a percent value
+        setEditValue(valueType === 'percent' ? `${displayValue}%` : displayValue.toString());
         setEditingField('value');
     };
 
@@ -307,9 +327,14 @@ export function EditableConnectionRow({
 
     // Save value change
     const handleValueSave = () => {
-        const numValue = parseLocaleNumber(editValue, locale ?? undefined);
-        if (!isNaN(numValue) && numValue >= 0 && numValue !== displayValue) {
-            setDisplayValue(numValue); // Optimistic update
+        const { numericValue, isPercent } = parseEditValue(editValue, locale ?? undefined);
+        const newValueType: ValueType = isPercent ? 'percent' : 'absolute';
+
+        if (
+            !isNaN(numericValue) && numericValue >= 0 && (numericValue !== displayValue || newValueType !== valueType)
+        ) {
+            setDisplayValue(numericValue); // Optimistic update
+            setValueType(newValueType); // Optimistic update
 
             // Different intent for group-ref with subNode
             if (row.type === 'group-ref' && subNode) {
@@ -317,7 +342,8 @@ export function EditableConnectionRow({
                     {
                         intent: 'update-group-ref-value',
                         referenceId: row.id.toString(),
-                        value: numValue.toString()
+                        value: numericValue.toString(),
+                        valueType: newValueType
                     },
                     { method: 'post' }
                 );
@@ -326,7 +352,8 @@ export function EditableConnectionRow({
                     {
                         intent: 'update-connection-value',
                         connectionId: row.id.toString(),
-                        value: numValue.toString()
+                        value: numericValue.toString(),
+                        valueType: newValueType
                     },
                     { method: 'post' }
                 );
@@ -563,6 +590,7 @@ export function EditableConnectionRow({
                 title={canEditValue ? 'Click to change' : undefined}
             >
                 {formatLocaleNumber(displayValue, locale ?? undefined)}
+                {valueType === 'percent' ? '%' : ''}
             </span>
         );
     };

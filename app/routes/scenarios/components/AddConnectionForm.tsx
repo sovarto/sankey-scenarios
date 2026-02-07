@@ -15,20 +15,27 @@ const SPECIAL_VALUES = {
 function parseValueField(
     value: string,
     locale?: string,
-): { type: 'regular' | 'auto' | 'missing' | 'remaining'; numericValue: number } {
+): { type: 'regular' | 'auto' | 'missing' | 'remaining'; numericValue: number; isPercent: boolean } {
     const trimmed = value.trim().toLowerCase();
 
     if ((SPECIAL_VALUES.auto as readonly string[]).includes(trimmed)) {
-        return { type: 'auto', numericValue: 0 };
+        return { type: 'auto', numericValue: 0, isPercent: false };
     }
     if ((SPECIAL_VALUES.missing as readonly string[]).includes(trimmed)) {
-        return { type: 'missing', numericValue: 0 };
+        return { type: 'missing', numericValue: 0, isPercent: false };
     }
     if ((SPECIAL_VALUES.remaining as readonly string[]).includes(trimmed)) {
-        return { type: 'remaining', numericValue: 0 };
+        return { type: 'remaining', numericValue: 0, isPercent: false };
     }
 
-    return { type: 'regular', numericValue: parseLocaleNumber(value, locale) };
+    // Check for percentage suffix (%, p, or percent)
+    const percentMatch = trimmed.match(/^(.+?)(%|p|percent)$/);
+    if (percentMatch) {
+        const numPart = percentMatch[1].trim();
+        return { type: 'regular', numericValue: parseLocaleNumber(numPart, locale), isPercent: true };
+    }
+
+    return { type: 'regular', numericValue: parseLocaleNumber(value, locale), isPercent: false };
 }
 
 interface TargetRow {
@@ -206,7 +213,7 @@ export function AddConnectionForm({
                 }
                 if (sourceSubNode) {
                     formData.subNode = sourceSubNode;
-                    // When subNode is specified, parse value field for auto/remaining
+                    // When subNode is specified, parse value field for auto/remaining/percent
                     if (row.value) {
                         const parsed = parseValueField(row.value, locale ?? undefined);
                         if (parsed.type === 'auto') {
@@ -215,6 +222,9 @@ export function AddConnectionForm({
                             formData.placeholderType = 'remaining';
                         } else if (parsed.numericValue > 0) {
                             formData.value = parsed.numericValue.toString();
+                            if (parsed.isPercent) {
+                                formData.valueType = 'percent';
+                            }
                         }
                     }
                 }
@@ -230,7 +240,7 @@ export function AddConnectionForm({
                 }
                 if (targetSubNode) {
                     formData.subNode = targetSubNode;
-                    // When subNode is specified, parse value field for auto/remaining
+                    // When subNode is specified, parse value field for auto/remaining/percent
                     if (row.value) {
                         const parsed = parseValueField(row.value, locale ?? undefined);
                         if (parsed.type === 'auto') {
@@ -239,6 +249,9 @@ export function AddConnectionForm({
                             formData.placeholderType = 'remaining';
                         } else if (parsed.numericValue > 0) {
                             formData.value = parsed.numericValue.toString();
+                            if (parsed.isPercent) {
+                                formData.valueType = 'percent';
+                            }
                         }
                     }
                 }
@@ -253,6 +266,9 @@ export function AddConnectionForm({
                     formData.placeholderType = parsed.type;
                 } else {
                     formData.value = parsed.numericValue.toString();
+                    if (parsed.isPercent) {
+                        formData.valueType = 'percent';
+                    }
                 }
             }
 

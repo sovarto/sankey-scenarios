@@ -149,11 +149,13 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             }
         }
 
-        // When subNode is set, support value/autoValue/placeholderType like direct connections
+        // When subNode is set, support value/autoValue/placeholderType/valueType like direct connections
         const placeholderType = formData.get('placeholderType');
         const autoValueStr = formData.get('autoValue');
+        const valueTypeStr = formData.get('valueType');
         const isPlaceholder = placeholderType === 'remaining'; // Only 'remaining' supported for group-ref
         const isAutoValue = autoValueStr === '1';
+        const isPercent = valueTypeStr === 'percent';
         let numValue: number | null = null;
         if (subNode && !isPlaceholder && !isAutoValue) {
             const valueStr = formData.get('value');
@@ -168,6 +170,7 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             showGroupNode: showGroupNodeValue,
             subNode: typeof subNode === 'string' ? subNode : null,
             value: numValue,
+            valueType: subNode && isPercent ? 'percent' : 'absolute',
             autoValue: subNode && isAutoValue ? 1 : 0,
             placeholderType: subNode && isPlaceholder ? 'remaining' : null,
             displayOrder
@@ -199,11 +202,13 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             }
         }
 
-        // When subNode is set, support value/autoValue/placeholderType like direct connections
+        // When subNode is set, support value/autoValue/placeholderType/valueType like direct connections
         const placeholderType = formData.get('placeholderType');
         const autoValueStr = formData.get('autoValue');
+        const valueTypeStr = formData.get('valueType');
         const isPlaceholder = placeholderType === 'remaining'; // Only 'remaining' supported for group-ref
         const isAutoValue = autoValueStr === '1';
+        const isPercent = valueTypeStr === 'percent';
         let numValue: number | null = null;
         if (subNode && !isPlaceholder && !isAutoValue) {
             const valueStr = formData.get('value');
@@ -218,6 +223,7 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             showGroupNode: showGroupNodeValue,
             subNode: typeof subNode === 'string' ? subNode : null,
             value: numValue,
+            valueType: subNode && isPercent ? 'percent' : 'absolute',
             autoValue: subNode && isAutoValue ? 1 : 0,
             placeholderType: subNode && isPlaceholder ? 'remaining' : null,
             displayOrder
@@ -232,8 +238,10 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
 
     const placeholderType = formData.get('placeholderType');
     const autoValueStr = formData.get('autoValue');
+    const valueTypeStr = formData.get('valueType');
     const isPlaceholder = placeholderType === 'missing' || placeholderType === 'remaining';
     const isAutoValue = autoValueStr === '1';
+    const isPercent = valueTypeStr === 'percent';
 
     // Value is required for regular connections, ignored for placeholders and auto
     let numValue = 0;
@@ -245,6 +253,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
         }
     }
 
+    // For all connections (including placeholders), create local nodes for both endpoints
+    // User-defined placeholders use real nodes that can be referenced by other connections
     const sourceLocalNodeId = await getOrCreateLocalNode(db, scenarioId, source);
     const targetLocalNodeId = await getOrCreateLocalNode(db, scenarioId, target);
 
@@ -253,6 +263,7 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
         sourceLocalNodeId,
         targetLocalNodeId,
         value: numValue,
+        valueType: isPercent ? 'percent' : 'absolute',
         placeholderType: isPlaceholder ? (placeholderType as string) : null,
         autoValue: isAutoValue ? 1 : 0,
         displayOrder
@@ -278,6 +289,7 @@ export async function handleUpdateConnectionValue(ctx: ActionContext): Promise<A
 
     const connectionId = formData.get('connectionId');
     const value = formData.get('value');
+    const valueType = formData.get('valueType');
 
     if (typeof connectionId !== 'string' || typeof value !== 'string') {
         return { error: 'Invalid parameters' };
@@ -288,9 +300,12 @@ export async function handleUpdateConnectionValue(ctx: ActionContext): Promise<A
         return { error: 'Value must be a positive number' };
     }
 
-    await db.update(schema.connections).set({
-        value: numValue
-    }).where(eq(schema.connections.id, parseInt(connectionId, 10)));
+    const updateData: { value: number; valueType?: string } = { value: numValue };
+    if (valueType === 'percent' || valueType === 'absolute') {
+        updateData.valueType = valueType;
+    }
+
+    await db.update(schema.connections).set(updateData).where(eq(schema.connections.id, parseInt(connectionId, 10)));
 
     return { success: true };
 }
@@ -769,16 +784,23 @@ export async function handleUpdateGroupRefValue(ctx: ActionContext): Promise<Act
 
     const referenceId = formData.get('referenceId');
     const value = formData.get('value');
+    const valueType = formData.get('valueType');
 
     if (typeof referenceId === 'string' && typeof value === 'string') {
         const numValue = parseFloat(value);
         if (!isNaN(numValue) && numValue >= 0) {
-            await db.update(schema.scenarioGroups).set({
+            const updateData: { value: number; valueType?: string; autoValue: number; placeholderType: null } = {
                 value: numValue,
                 // Clear auto and placeholder when setting explicit value
                 autoValue: 0,
                 placeholderType: null
-            }).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+            };
+            if (valueType === 'percent' || valueType === 'absolute') {
+                updateData.valueType = valueType;
+            }
+            await db.update(schema.scenarioGroups).set(updateData).where(
+                eq(schema.scenarioGroups.id, parseInt(referenceId, 10))
+            );
             return { success: true };
         }
     }

@@ -18,6 +18,10 @@ export interface ResolvedConnection {
     placeholderType?: 'missing' | 'remaining' | null;
     /** Auto value: if true, value is calculated as total incoming to the source node */
     autoValue?: boolean;
+    /** Value type: 'percent' means the stored value is a percentage of total incoming to source node */
+    valueType?: 'absolute' | 'percent';
+    /** Original percentage value (stored when valueType is 'percent' before resolution) */
+    percentValue?: number;
     fromGroup?: string;
     fromNode?: string;
 }
@@ -38,6 +42,7 @@ export type ScenarioWithRelations = {
     connections: Array<{
         id: number;
         value: number;
+        valueType?: string | null;
         displayOrder: number;
         placeholderType?: string | null;
         autoValue?: number | null;
@@ -53,6 +58,7 @@ export type ScenarioWithRelations = {
         showGroupNode: number;
         subNode: string | null;
         value: number | null;
+        valueType: string | null;
         autoValue: number | null;
         placeholderType: string | null;
         group: {
@@ -113,11 +119,14 @@ function resolveDirectConnection(conn: ScenarioWithRelations['connections'][numb
         ? conn.placeholderType
         : null;
     const autoValue = conn.autoValue === 1;
+    const valueType = conn.valueType === 'percent' ? 'percent' : 'absolute';
 
     return [ {
         source: sourceName,
         target: targetName,
         value: conn.value,
+        valueType,
+        percentValue: valueType === 'percent' ? conn.value : undefined,
         placeholderType,
         autoValue: autoValue || undefined
     } ];
@@ -131,7 +140,7 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
     const subNode = groupRef.subNode;
 
     // If subNode is specified, only connect to that specific node (showGroupNode is ignored)
-    // This works like a direct connection with value, autoValue, and placeholderType support
+    // This works like a direct connection with value, autoValue, placeholderType, and valueType support
     if (subNode) {
         // Find matching connections in the group to calculate default value
         const matchingConnections = groupRef.group.connections.filter(conn => {
@@ -149,6 +158,7 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
         const value = groupRef.value ?? defaultValue;
         const autoValue = groupRef.autoValue === 1;
         const placeholderType = groupRef.placeholderType === 'remaining' ? 'remaining' : null;
+        const valueType = groupRef.valueType === 'percent' ? 'percent' : 'absolute';
 
         if (groupRef.direction === 'source') {
             // connectingNode → subNode
@@ -156,6 +166,8 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
                 source: connectingNodeName,
                 target: subNode,
                 value,
+                valueType,
+                percentValue: valueType === 'percent' ? value : undefined,
                 fromGroup: groupRef.group.name,
                 autoValue: autoValue || undefined,
                 placeholderType
@@ -166,6 +178,8 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
                 source: subNode,
                 target: connectingNodeName,
                 value,
+                valueType,
+                percentValue: valueType === 'percent' ? value : undefined,
                 fromGroup: groupRef.group.name,
                 autoValue: autoValue || undefined,
                 placeholderType
@@ -261,86 +275,211 @@ function resolveNodeReference(nodeRef: ScenarioWithRelations['nodeReferences'][n
  * - If incoming > outgoing: add an outgoing flow to "Remaining" (greenish)
  * - If outgoing > incoming: add an incoming flow from "Missing" (reddish)
  *
- * Also resolves auto-value connections where the value is calculated as the
- * total incoming to the source node.
+ * Also resolves auto-value and percentage connections where the value is calculated as:
+ * - Auto: 100% of total incoming to the source node
+ * - Percent: specified percentage of total incoming to the source node
  *
  * User-defined placeholders keep their exact position in the list.
  * Auto-generated balancing flows are inserted after the last connection involving the node.
  */
 export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedConnection[] {
-    // Resolve auto-value connections iteratively
-    // Auto-values depend on the total incoming to their source node, which may include other auto-values
-    // We iterate until all auto-values are stable
+    // We need to resolve everything iteratively because:
+    // 1. Placeholder values depend on node balance (incoming - outgoing)
+    // 2. Auto/percent values depend on total incoming to source node
+    // 3. Placeholder flows contribute to incoming totals for their target nodes
+    // So we iterate until all values are stable
 
     let resolvedConnections = [ ...connections ];
+
+    // Track resolved placeholder values (keyed by original connection index)
+    const placeholderValues = new Map<number, number>();
+
     let changed = true;
-    const maxIterations = 100; // Safety limit to prevent infinite loops
+    const maxIterations = 100;
     let iterations = 0;
 
     while (changed && iterations < maxIterations) {
         changed = false;
         iterations++;
 
-        // Calculate incoming totals for each node (excluding placeholders, but INCLUDING resolved auto-values)
-        const nodeIncoming = new Map<string, number>();
+        // First, calculate balance for each node to determine placeholder values
+        // Include: regular connections, resolved auto/percent values
+        // For placeholders:
+        // - Remaining: include contribution to TARGET's incoming (for chained placeholders),
+        //   but NOT to SOURCE's outgoing (to avoid feedback loop - we calculate remaining based on source's diff)
+        // - Missing: include contribution to SOURCE's outgoing (for chained placeholders),
+        //   but NOT to TARGET's incoming (to avoid feedback loop - we calculate missing based on target's diff)
+        const nodeBalance = new Map<string, { incoming: number; outgoing: number }>();
 
-        for (const conn of resolvedConnections) {
+        for (let i = 0; i < resolvedConnections.length; i++) {
+            const conn = resolvedConnections[i];
+
             if (conn.placeholderType) {
-                continue; // Skip placeholders
+                const resolvedValue = placeholderValues.get(i) ?? 0;
+                if (resolvedValue > 0) {
+                    if (conn.placeholderType === 'remaining') {
+                        // Remaining: track target's incoming (for chained placeholders)
+                        if (!nodeBalance.has(conn.target)) {
+                            nodeBalance.set(conn.target, { incoming: 0, outgoing: 0 });
+                        }
+                        nodeBalance.get(conn.target)!.incoming += resolvedValue;
+                    } else if (conn.placeholderType === 'missing') {
+                        // Missing: track source's outgoing (for chained placeholders)
+                        if (!nodeBalance.has(conn.source)) {
+                            nodeBalance.set(conn.source, { incoming: 0, outgoing: 0 });
+                        }
+                        nodeBalance.get(conn.source)!.outgoing += resolvedValue;
+                    }
+                }
+                continue;
             }
-            // Include the connection's value (auto-values will use their current resolved value)
-            nodeIncoming.set(conn.target, (nodeIncoming.get(conn.target) ?? 0) + conn.value);
+
+            // Regular connection (including auto/percent with their resolved values)
+            if (!nodeBalance.has(conn.source)) {
+                nodeBalance.set(conn.source, { incoming: 0, outgoing: 0 });
+            }
+            nodeBalance.get(conn.source)!.outgoing += conn.value;
+
+            if (!nodeBalance.has(conn.target)) {
+                nodeBalance.set(conn.target, { incoming: 0, outgoing: 0 });
+            }
+            nodeBalance.get(conn.target)!.incoming += conn.value;
         }
 
-        // Update auto-value connections based on current incoming totals
+        // Calculate diffs for nodes
+        // For "remaining": need incoming > outgoing (diff > 0)
+        // For "missing": need outgoing > incoming (diff < 0)
+        // We only need both incoming and outgoing > 0 for auto-generated flows,
+        // but user-defined placeholders can work with just one side
+        const nodeDiffs = new Map<string, number>();
+        for (const [ nodeName, balance ] of nodeBalance) {
+            if (nodeName.startsWith('_Missing_') || nodeName.startsWith('_Remaining_')) {
+                continue;
+            }
+            // Calculate diff for any node with activity
+            // diff > 0 means remaining (more incoming than outgoing)
+            // diff < 0 means missing (more outgoing than incoming)
+            const diff = balance.incoming - balance.outgoing;
+            if (diff !== 0) {
+                nodeDiffs.set(nodeName, diff);
+            }
+        }
+
+        // Update placeholder values based on diffs
+        for (let i = 0; i < resolvedConnections.length; i++) {
+            const conn = resolvedConnections[i];
+            if (!conn.placeholderType) {
+                continue;
+            }
+
+            const nodeName = conn.placeholderType === 'remaining' ? conn.source : conn.target;
+            const diff = nodeDiffs.get(nodeName);
+            let newValue = 0;
+
+            if (diff !== undefined) {
+                if (conn.placeholderType === 'remaining' && diff > 0) {
+                    newValue = diff;
+                } else if (conn.placeholderType === 'missing' && diff < 0) {
+                    newValue = Math.abs(diff);
+                }
+            }
+
+            const oldValue = placeholderValues.get(i) ?? 0;
+            if (newValue !== oldValue) {
+                changed = true;
+                placeholderValues.set(i, newValue);
+            }
+        }
+
+        // Calculate incoming totals for each node (including resolved placeholders)
+        const nodeIncoming = new Map<string, number>();
+        for (const [ nodeName, balance ] of nodeBalance) {
+            nodeIncoming.set(nodeName, balance.incoming);
+        }
+        // Add contributions from resolved placeholders
+        for (let i = 0; i < resolvedConnections.length; i++) {
+            const conn = resolvedConnections[i];
+            if (conn.placeholderType) {
+                const resolvedValue = placeholderValues.get(i) ?? 0;
+                if (resolvedValue > 0) {
+                    // Placeholder contributes to target's incoming
+                    nodeIncoming.set(conn.target, (nodeIncoming.get(conn.target) ?? 0) + resolvedValue);
+                }
+            }
+        }
+
+        // Update auto-value and percentage connections based on incoming totals
         resolvedConnections = resolvedConnections.map(conn => {
+            if (conn.placeholderType) {
+                return conn; // Skip placeholders, they're handled separately
+            }
+
             if (conn.autoValue) {
+                // Auto: 100% of total incoming to source node
                 const sourceIncoming = nodeIncoming.get(conn.source) ?? 0;
                 if (conn.value !== sourceIncoming) {
                     changed = true;
                     return { ...conn, value: sourceIncoming };
+                }
+            } else if (conn.valueType === 'percent' && conn.percentValue !== undefined) {
+                // Percent: specified percentage of total incoming to source node
+                const sourceIncoming = nodeIncoming.get(conn.source) ?? 0;
+                const newValue = (sourceIncoming * conn.percentValue) / 100;
+                if (conn.value !== newValue) {
+                    changed = true;
+                    return { ...conn, value: newValue };
                 }
             }
             return conn;
         });
     }
 
-    // Second pass: Calculate full balance for each node (excluding placeholders)
-    const nodeBalance = new Map<string, { incoming: number; outgoing: number }>();
+    // Track last indices for auto-generated flow insertion
     const lastSourceIndex = new Map<string, number>();
     const lastTargetIndex = new Map<string, number>();
-
     for (let i = 0; i < resolvedConnections.length; i++) {
         const conn = resolvedConnections[i];
-        if (conn.placeholderType) {
-            continue; // Skip placeholders for balance calculation
+        if (!conn.placeholderType) {
+            lastSourceIndex.set(conn.source, i);
+            lastTargetIndex.set(conn.target, i);
         }
-
-        // Update source node outgoing
-        if (!nodeBalance.has(conn.source)) {
-            nodeBalance.set(conn.source, { incoming: 0, outgoing: 0 });
-        }
-        nodeBalance.get(conn.source)!.outgoing += conn.value;
-        lastSourceIndex.set(conn.source, i);
-
-        // Update target node incoming
-        if (!nodeBalance.has(conn.target)) {
-            nodeBalance.set(conn.target, { incoming: 0, outgoing: 0 });
-        }
-        nodeBalance.get(conn.target)!.incoming += conn.value;
-        lastTargetIndex.set(conn.target, i);
     }
 
-    // Calculate which nodes need balancing and what their diff is
-    const nodeDiffs = new Map<string, number>();
-    for (const [ nodeName, balance ] of nodeBalance) {
+    // Recalculate final diffs for auto-generated flows
+    const finalNodeBalance = new Map<string, { incoming: number; outgoing: number }>();
+    for (let i = 0; i < resolvedConnections.length; i++) {
+        const conn = resolvedConnections[i];
+        let source = conn.source;
+        let target = conn.target;
+        let value = conn.value;
+
+        if (conn.placeholderType) {
+            value = placeholderValues.get(i) ?? 0;
+            if (value <= 0) {
+                continue;
+            }
+        }
+
+        if (!finalNodeBalance.has(source)) {
+            finalNodeBalance.set(source, { incoming: 0, outgoing: 0 });
+        }
+        finalNodeBalance.get(source)!.outgoing += value;
+
+        if (!finalNodeBalance.has(target)) {
+            finalNodeBalance.set(target, { incoming: 0, outgoing: 0 });
+        }
+        finalNodeBalance.get(target)!.incoming += value;
+    }
+
+    const finalNodeDiffs = new Map<string, number>();
+    for (const [ nodeName, balance ] of finalNodeBalance) {
         if (nodeName.startsWith('_Missing_') || nodeName.startsWith('_Remaining_')) {
             continue;
         }
         if (balance.incoming > 0 && balance.outgoing > 0) {
             const diff = balance.incoming - balance.outgoing;
             if (diff !== 0) {
-                nodeDiffs.set(nodeName, diff);
+                finalNodeDiffs.set(nodeName, diff);
             }
         }
     }
@@ -355,38 +494,32 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
         const conn = resolvedConnections[i];
 
         if (conn.placeholderType) {
-            // User-defined placeholder - convert to balancing flow at this exact position
-            const nodeName = conn.placeholderType === 'remaining' ? conn.source : conn.target;
-            const diff = nodeDiffs.get(nodeName);
-
-            if (diff !== undefined) {
-                if (conn.placeholderType === 'remaining' && diff > 0) {
-                    // Node needs remaining flow
+            // User-defined placeholder - convert to balancing flow
+            const resolvedValue = placeholderValues.get(i) ?? 0;
+            if (resolvedValue > 0) {
+                if (conn.placeholderType === 'remaining') {
                     result.push({
-                        source: nodeName,
-                        target: `_Remaining_${nodeName}_${conn.target}`,
-                        targetDisplayName: conn.target,
-                        targetNodeColor: REMAINING_COLOR,
-                        value: diff,
-                        color: REMAINING_COLOR
+                        source: conn.source,
+                        target: conn.target,
+                        value: resolvedValue,
+                        color: REMAINING_COLOR,
+                        targetNodeColor: REMAINING_COLOR
                     });
-                    handledNodes.add(nodeName);
-                } else if (conn.placeholderType === 'missing' && diff < 0) {
-                    // Node needs missing flow
+                    handledNodes.add(conn.source);
+                } else if (conn.placeholderType === 'missing') {
                     result.push({
-                        source: `_Missing_${nodeName}_${conn.source}`,
-                        sourceDisplayName: conn.source,
-                        sourceNodeColor: MISSING_COLOR,
-                        target: nodeName,
-                        value: Math.abs(diff),
-                        color: MISSING_COLOR
+                        source: conn.source,
+                        target: conn.target,
+                        value: resolvedValue,
+                        color: MISSING_COLOR,
+                        sourceNodeColor: MISSING_COLOR
                     });
-                    handledNodes.add(nodeName);
+                    handledNodes.add(conn.target);
                 }
-                // If placeholder type doesn't match what's needed, skip it silently
             }
+            // If value is 0, skip the placeholder silently
         } else {
-            // Regular connection - add as-is (with resolved auto-value)
+            // Regular connection - add as-is (with resolved auto/percent value)
             result.push(conn);
         }
     }
@@ -394,7 +527,7 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
     // Collect auto-generated flows for nodes that still need balancing
     const autoFlows: Array<{ flow: ResolvedConnection; insertAfter: number }> = [];
 
-    for (const [ nodeName, diff ] of nodeDiffs) {
+    for (const [ nodeName, diff ] of finalNodeDiffs) {
         if (handledNodes.has(nodeName)) {
             continue;
         }
@@ -431,15 +564,12 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
     }
 
     // Map original indices to result indices
-    // (accounting for skipped placeholders that didn't match their node's needs)
     const originalToResultIndex: number[] = [];
     let resultIdx = 0;
     for (let i = 0; i < resolvedConnections.length; i++) {
         if (resolvedConnections[i].placeholderType) {
-            const nodeName = resolvedConnections[i].placeholderType === 'remaining'
-                ? resolvedConnections[i].source
-                : resolvedConnections[i].target;
-            if (handledNodes.has(nodeName)) {
+            const resolvedValue = placeholderValues.get(i) ?? 0;
+            if (resolvedValue > 0) {
                 originalToResultIndex.push(resultIdx);
                 resultIdx++;
             } else {
@@ -453,7 +583,6 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
     }
 
     // Sort auto flows by insertAfter descending so we can insert from end to start
-    // This prevents earlier insertions from affecting later indices
     autoFlows.sort((a, b) => b.insertAfter - a.insertAfter);
 
     // Insert auto-generated flows at their correct positions
