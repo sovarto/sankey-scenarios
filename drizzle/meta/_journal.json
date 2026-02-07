@@ -57,6 +57,13 @@
       "when": 1770428556189,
       "tag": "0007_useful_drax",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1770430599285,
+      "tag": "0008_odd_red_wolf",
+      "breakpoints": true
     }
   ]
 }

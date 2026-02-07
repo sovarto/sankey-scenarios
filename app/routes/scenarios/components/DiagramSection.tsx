@@ -120,6 +120,7 @@ export function DiagramSection({ resolvedConnections }: {
                             nodeOpacity: 0.9,
                             flowOpacity: 0.45,
                             flowColorMode: 'source',
+                            layoutOrder: 'exact',
                             margin: { top: 20, right: 150, bottom: 20, left: 150 },
                             labels: {
                                 show: true,

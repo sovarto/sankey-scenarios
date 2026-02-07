@@ -21,6 +21,12 @@ export function ConnectionRow({
 }) {
     const getBadge = () => {
         if (row.type === 'direct') {
+            if (row.placeholderType === 'missing') {
+                return <span className='text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded'>Missing</span>;
+            }
+            if (row.placeholderType === 'remaining') {
+                return <span className='text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded'>Remaining</span>;
+            }
             return <span className='text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded'>Direct</span>;
         }
         if (row.type === 'group-ref') {
@@ -123,9 +129,10 @@ export function ConnectionRow({
                 <span className='text-gray-400'>→</span>
                 <span className='font-medium text-gray-900'>{targetDisplay}</span>
             </div>
-            {row.type !== 'group-ref' && (
+            {row.type !== 'group-ref' && !row.placeholderType && (
                 <span className='text-gray-600 font-mono text-sm w-20 text-right'>{row.value}</span>
             )}
+            {row.placeholderType && <span className='text-gray-400 italic text-xs w-20 text-right'>auto</span>}
             {getBadge()}
             <button
                 type='button'

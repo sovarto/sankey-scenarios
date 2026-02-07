@@ -36,6 +36,9 @@ export function EditableConnectionRow({
     const [ displayTarget, setDisplayTarget ] = useState(row.target);
     const [ displayValue, setDisplayValue ] = useState(row.value);
     const [ showGroupNode, setShowGroupNode ] = useState(row.showGroupNode ?? false);
+    const [ placeholderType, setPlaceholderType ] = useState<'missing' | 'remaining' | null>(
+        row.placeholderType ?? null
+    );
     const fetcher = useFetcher();
 
     // Sync display values when row changes from server
@@ -54,6 +57,10 @@ export function EditableConnectionRow({
     useEffect(() => {
         setShowGroupNode(row.showGroupNode ?? false);
     }, [ row.showGroupNode ]);
+
+    useEffect(() => {
+        setPlaceholderType(row.placeholderType ?? null);
+    }, [ row.placeholderType ]);
     // Build options list (same logic as AddConnectionForm)
     const allOptions: ComboboxOption[] = useMemo(() => {
         const opts: ComboboxOption[] = [];
@@ -239,6 +246,19 @@ export function EditableConnectionRow({
         );
     };
 
+    // Update placeholder type
+    const handlePlaceholderTypeChange = (type: 'missing' | 'remaining' | null) => {
+        setPlaceholderType(type); // Optimistic update
+        void fetcher.submit(
+            {
+                intent: 'update-connection-placeholder-type',
+                connectionId: row.id.toString(),
+                placeholderType: type ?? ''
+            },
+            { method: 'post' }
+        );
+    };
+
     // Get color class based on what the endpoint actually refers to
     const getColorClassForName = (name: string) => {
         // Strip brackets for group names
@@ -319,6 +339,11 @@ export function EditableConnectionRow({
 
     // Render value display
     const renderValue = () => {
+        // Placeholders don't show a value
+        if (placeholderType) {
+            return <span className='text-gray-400 text-xs italic w-20 text-right'>auto</span>;
+        }
+
         if (row.type === 'group-ref') {
             return null; // Groups don't have a single value
         }
@@ -382,6 +407,40 @@ export function EditableConnectionRow({
                 <span className='font-medium text-gray-900'>{renderTarget()}</span>
             </div>
             {renderValue()}
+            {row.type === 'direct' && (
+                <div className='flex items-center gap-2 text-xs'>
+                    <label className='flex items-center gap-1 text-gray-500'>
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={!placeholderType}
+                            onChange={() => handlePlaceholderTypeChange(null)}
+                            className='w-3 h-3'
+                        />
+                        <span>Regular</span>
+                    </label>
+                    <label className='flex items-center gap-1 text-red-600'>
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={placeholderType === 'missing'}
+                            onChange={() => handlePlaceholderTypeChange('missing')}
+                            className='w-3 h-3'
+                        />
+                        <span>Missing</span>
+                    </label>
+                    <label className='flex items-center gap-1 text-green-600'>
+                        <input
+                            type='radio'
+                            name={`placeholder-${row.id}`}
+                            checked={placeholderType === 'remaining'}
+                            onChange={() => handlePlaceholderTypeChange('remaining')}
+                            className='w-3 h-3'
+                        />
+                        <span>Remaining</span>
+                    </label>
+                </div>
+            )}
             {row.type === 'group-ref' && (
                 <label
                     className='flex items-center gap-1 text-xs text-gray-500'

@@ -78,6 +78,7 @@ export const groupsRelations = relations(groups, ({ one, many }) => ({
 // Connections - can belong to either a scenario OR a group (not both)
 // For scenario connections: sourceLocalNodeId and targetLocalNodeId reference local nodes
 // For group connections: source and target are plain strings (group templates)
+// placeholderType: null = regular connection, 'missing' = placeholder for Missing flow, 'remaining' = placeholder for Remaining flow
 export const connections = pgTable('connections', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     scenarioId: integer().references(() => scenarios.id, { onDelete: 'cascade' }),
@@ -89,6 +90,8 @@ export const connections = pgTable('connections', {
     source: varchar({ length: 255 }),
     target: varchar({ length: 255 }),
     value: real().notNull(),
+    // Placeholder type for auto-balancing: 'missing' (source provides Missing), 'remaining' (target receives Remaining)
+    placeholderType: varchar({ length: 20 }),
     displayOrder: integer().notNull().default(0),
     createdAt: timestamp().defaultNow().notNull()
 });

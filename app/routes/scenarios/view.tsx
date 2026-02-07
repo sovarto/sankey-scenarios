@@ -2,7 +2,7 @@ import { Form, Link, useFetcher, useLoaderData, useActionData } from 'react-rout
 import type { Route } from './+types/view';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
-import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections } from './view/actions.server';
+import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections } from './view/actions.server';
 import { loadScenarioView } from './view/loader.server';
 import { database } from '~/database/context';
 
@@ -49,6 +49,8 @@ export async function action({ request, params }: Route.ActionArgs) {
             return handleDeleteConnection(ctx);
         case 'update-connection-value':
             return handleUpdateConnectionValue(ctx);
+        case 'update-connection-placeholder-type':
+            return handleUpdateConnectionPlaceholderType(ctx);
         case 'update-connection-source':
             return handleUpdateConnectionSource(ctx);
         case 'update-connection-target':
@@ -71,7 +73,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function ViewScenario({}: Route.ComponentProps) {
     const loaderData = useLoaderData<typeof loader>();
     const actionData = useActionData<typeof action>();
-    const { project, scenario, resolvedConnections, groups, nodes } = loaderData;
+    const { project, scenario, resolvedConnections, groups, nodes, existingPlaceholders } = loaderData;
     const fetcher = useFetcher();
 
     const localNodes = scenario.localNodes;
@@ -92,7 +94,8 @@ export default function ViewScenario({}: Route.ComponentProps) {
             sourceLocalNodeId: conn.sourceLocalNode?.id,
             targetLocalNodeId: conn.targetLocalNode?.id,
             value: conn.value,
-            displayOrder: conn.displayOrder
+            displayOrder: conn.displayOrder,
+            placeholderType: conn.placeholderType as 'missing' | 'remaining' | null | undefined
         })),
         ...scenario.groupReferences.map(ref => ({
             type: 'group-ref' as const,
@@ -187,7 +190,12 @@ export default function ViewScenario({}: Route.ComponentProps) {
                         onDelete={handleDelete}
                     />
 
-                    <AddConnectionForm groups={groups} nodes={nodes} localNodes={localNodes} />
+                    <AddConnectionForm
+                        groups={groups}
+                        nodes={nodes}
+                        localNodes={localNodes}
+                        existingPlaceholders={existingPlaceholders}
+                    />
                 </section>
 
                 <LocalNodesPanel localNodes={localNodes} />

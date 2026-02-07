@@ -132,17 +132,21 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
     }
 
     // Direct connection
-    if (
-        typeof source !== 'string' || !source.trim()
-        || typeof target !== 'string' || !target.trim()
-        || typeof value !== 'string'
-    ) {
-        return { error: 'All connection fields are required' };
+    if (typeof source !== 'string' || !source.trim() || typeof target !== 'string' || !target.trim()) {
+        return { error: 'Source and target are required' };
     }
 
-    const numValue = parseFloat(value);
-    if (isNaN(numValue) || numValue <= 0) {
-        return { error: 'Value must be a positive number' };
+    const placeholderType = formData.get('placeholderType');
+    const isPlaceholder = placeholderType === 'missing' || placeholderType === 'remaining';
+
+    // Value is required for regular connections, ignored for placeholders
+    let numValue = 0;
+    if (!isPlaceholder) {
+        const value = formData.get('value');
+        numValue = value ? parseFloat(value as string) : 0;
+        if (isNaN(numValue) || numValue <= 0) {
+            return { error: 'Value must be a positive number' };
+        }
     }
 
     const sourceLocalNodeId = await getOrCreateLocalNode(db, scenarioId, source);
@@ -152,7 +156,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
         scenarioId,
         sourceLocalNodeId,
         targetLocalNodeId,
-        value: numValue
+        value: numValue,
+        placeholderType: isPlaceholder ? (placeholderType as string) : null
     });
 
     return { success: true };
@@ -187,6 +192,26 @@ export async function handleUpdateConnectionValue(ctx: ActionContext): Promise<A
 
     await db.update(schema.connections).set({
         value: numValue
+    }).where(eq(schema.connections.id, parseInt(connectionId, 10)));
+
+    return { success: true };
+}
+
+export async function handleUpdateConnectionPlaceholderType(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const connectionId = formData.get('connectionId');
+    const placeholderType = formData.get('placeholderType');
+
+    if (typeof connectionId !== 'string') {
+        return { error: 'Invalid parameters' };
+    }
+
+    // Empty string means no placeholder type (regular connection)
+    const typeValue = placeholderType === 'missing' || placeholderType === 'remaining' ? placeholderType : null;
+
+    await db.update(schema.connections).set({
+        placeholderType: typeValue
     }).where(eq(schema.connections.id, parseInt(connectionId, 10)));
 
     return { success: true };

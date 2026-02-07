@@ -3,7 +3,7 @@
  */
 
 import { eq, and } from 'drizzle-orm';
-import { buildResolvedConnections, addBalancingFlows } from './resolvedConnections';
+import { buildResolvedConnections, addBalancingFlows, getExistingPlaceholders } from './resolvedConnections';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -73,6 +73,7 @@ export async function loadScenarioView(projectId: number, scenarioId: number) {
     });
 
     const resolvedConnections = addBalancingFlows(buildResolvedConnections(scenario));
+    const existingPlaceholders = getExistingPlaceholders(scenario);
 
-    return { project, scenario, resolvedConnections, groups, nodes };
+    return { project, scenario, resolvedConnections, groups, nodes, existingPlaceholders };
 }

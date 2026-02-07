@@ -1,0 +1,1 @@
+ALTER TABLE "connections" ADD COLUMN "placeholderType" varchar(20);

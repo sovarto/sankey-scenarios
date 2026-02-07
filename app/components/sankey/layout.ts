@@ -224,6 +224,56 @@ function computeNodeValues(nodes: InternalNode[]): void {
     }
 }
 
+/**
+ * Adjust sourceRow for placeholder nodes (_Missing_ and _Remaining_) based on their
+ * connected node's flow position. This ensures they appear at the correct vertical
+ * position in exact layout mode.
+ */
+function adjustPlaceholderSourceRows(nodes: InternalNode[]): void {
+    for (const node of nodes) {
+        if (node.name.startsWith('_Missing_')) {
+            // Missing node is SOURCE of flow going to target
+            // It should be positioned based on where the flow connects on the target
+            const outFlow = node.flows[OUT][0];
+            if (outFlow) {
+                const target = outFlow.target;
+                // Find where among the target's incoming flows this one appears
+                const targetInFlows = target.flows[IN].slice().sort((a, b) => a.sourceRow - b.sourceRow);
+                const flowIndex = targetInFlows.indexOf(outFlow);
+                if (flowIndex >= 0 && targetInFlows.length > 1) {
+                    // Calculate a sourceRow that positions this node relative to other incoming flows
+                    // Use the flow's sourceRow but adjust based on its position in the target's incoming flows
+                    const positionRatio = flowIndex / (targetInFlows.length - 1);
+                    // Get the range of sourceRows for target's incoming flows
+                    const minRow = Math.min(...targetInFlows.map(f => f.source.sourceRow));
+                    const maxRow = Math.max(...targetInFlows.map(f => f.source.sourceRow));
+                    // Position the Missing node within that range
+                    node.sourceRow = minRow + positionRatio * (maxRow - minRow + 1);
+                }
+            }
+        } else if (node.name.startsWith('_Remaining_')) {
+            // Remaining node is TARGET of flow coming from source
+            // It should be positioned based on where the flow leaves the source
+            const inFlow = node.flows[IN][0];
+            if (inFlow) {
+                const source = inFlow.source;
+                // Find where among the source's outgoing flows this one appears
+                const sourceOutFlows = source.flows[OUT].slice().sort((a, b) => a.sourceRow - b.sourceRow);
+                const flowIndex = sourceOutFlows.indexOf(inFlow);
+                if (flowIndex >= 0 && sourceOutFlows.length > 1) {
+                    // Calculate a sourceRow that positions this node relative to other outgoing flows
+                    const positionRatio = flowIndex / (sourceOutFlows.length - 1);
+                    // Get the range of sourceRows for source's outgoing flows
+                    const minRow = Math.min(...sourceOutFlows.map(f => f.target.sourceRow));
+                    const maxRow = Math.max(...sourceOutFlows.map(f => f.target.sourceRow));
+                    // Position the Remaining node within that range
+                    node.sourceRow = minRow + positionRatio * (maxRow - minRow + 1);
+                }
+            }
+        }
+    }
+}
+
 function assignNodesToStages(nodes: InternalNode[], justifyOrigins: boolean, justifyEnds: boolean): number {
     let maxStage = -1;
     const nodesToCheck = new Set<InternalNode>();
@@ -569,7 +619,38 @@ function computeNodeOffset(node: InternalNode, factor: number): number {
 
 function resolveCollisions(stage: InternalNode[], autoLayout: boolean, nodeSpacing: number, graphHeight: number): void {
     // Sort by position
-    stage.sort((a, b) => autoLayout ? a.y - b.y : a.sourceRow - b.sourceRow);
+    if (autoLayout) {
+        stage.sort((a, b) => a.y - b.y);
+    } else {
+        // In exact mode, we need to consider the order of flows to shared targets
+        // For two nodes flowing to the same target, their order should match the flow order
+        stage.sort((a, b) => {
+            // Find shared targets between a and b
+            const aTargets = new Set(a.flows[OUT].map(f => f.target));
+            const bTargets = new Set(b.flows[OUT].map(f => f.target));
+
+            for (const target of aTargets) {
+                if (bTargets.has(target)) {
+                    // Both flow to the same target - use flow order to that target
+                    const aFlowToTarget = a.flows[OUT].find(f => f.target === target);
+                    const bFlowToTarget = b.flows[OUT].find(f => f.target === target);
+                    if (aFlowToTarget && bFlowToTarget) {
+                        return aFlowToTarget.sourceRow - bFlowToTarget.sourceRow;
+                    }
+                }
+            }
+
+            // No shared target - fall back to minimum flow sourceRow
+            const getMinSourceRow = (node: InternalNode): number => {
+                const allFlows = [ ...node.flows[IN], ...node.flows[OUT] ];
+                if (allFlows.length > 0) {
+                    return Math.min(...allFlows.map(f => f.sourceRow));
+                }
+                return node.sourceRow;
+            };
+            return getMinSourceRow(a) - getMinSourceRow(b);
+        });
+    }
 
     // Push down from top
     let y = 0;
@@ -584,6 +665,92 @@ function resolveCollisions(stage: InternalNode[], autoLayout: boolean, nodeSpaci
     y = graphHeight;
     for (let i = stage.length - 1; i >= 0; i--) {
         const node = stage[i];
+        if (node.y + node.dy > y) {
+            node.y = y - node.dy;
+        }
+        y = node.y - nodeSpacing;
+    }
+}
+
+/**
+ * Adjust placeholder nodes (_Missing_ and _Remaining_ prefixed) to align with their connected flows.
+ * This ensures user-defined placeholders appear at the correct vertical position to minimize crossings.
+ */
+function adjustPlaceholderNodePositions(
+    nodes: InternalNode[],
+    stages: InternalNode[][],
+    graphHeight: number,
+    nodeSpacing: number,
+): void {
+    // Find placeholder nodes and calculate their ideal Y position
+    const adjustments: Array<{ node: InternalNode; targetY: number; stageIndex: number }> = [];
+
+    for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
+        const stage = stages[stageIndex];
+        for (const node of stage) {
+            if (!node.name.startsWith('_Missing_') && !node.name.startsWith('_Remaining_')) {
+                continue;
+            }
+
+            // Calculate ideal Y based on connected flows
+            let targetY: number | null = null;
+
+            if (node.name.startsWith('_Missing_')) {
+                // Missing node: position based on where flow connects to target
+                const outFlow = node.flows[OUT][0];
+                if (outFlow) {
+                    // Align center of this node with where flow connects on target
+                    const targetFlowY = outFlow.target.y + outFlow.ty + outFlow.dy / 2;
+                    targetY = targetFlowY - node.dy / 2;
+                }
+            } else if (node.name.startsWith('_Remaining_')) {
+                // Remaining node: position based on where flow comes from source
+                const inFlow = node.flows[IN][0];
+                if (inFlow) {
+                    // Align center of this node with where flow leaves source
+                    const sourceFlowY = inFlow.source.y + inFlow.sy + inFlow.dy / 2;
+                    targetY = sourceFlowY - node.dy / 2;
+                }
+            }
+
+            if (targetY !== null) {
+                adjustments.push({ node, targetY, stageIndex });
+            }
+        }
+    }
+
+    // Apply adjustments and resolve collisions
+    for (const { node, targetY, stageIndex } of adjustments) {
+        node.y = Math.max(0, Math.min(graphHeight - node.dy, targetY));
+    }
+
+    // Re-resolve collisions in affected stages
+    const affectedStages = new Set(adjustments.map(a => a.stageIndex));
+    for (const stageIndex of affectedStages) {
+        resolveCollisionsForPlaceholders(stages[stageIndex], nodeSpacing, graphHeight);
+    }
+}
+
+/**
+ * Resolve collisions while trying to preserve placeholder node positions
+ */
+function resolveCollisionsForPlaceholders(stage: InternalNode[], nodeSpacing: number, graphHeight: number): void {
+    // Sort by current Y position to maintain relative order
+    const sorted = [ ...stage ].sort((a, b) => a.y - b.y);
+
+    // Push down from top
+    let y = 0;
+    for (const node of sorted) {
+        if (node.y < y) {
+            node.y = y;
+        }
+        y = node.y + node.dy + nodeSpacing;
+    }
+
+    // Push up from bottom
+    y = graphHeight;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        const node = sorted[i];
         if (node.y + node.dy > y) {
             node.y = y - node.dy;
         }

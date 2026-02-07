@@ -9,6 +9,8 @@ export interface ConnectionRowData {
     targetLocalNodeId?: number;
     value: number;
     displayOrder: number;
+    // For direct connections - placeholder type
+    placeholderType?: 'missing' | 'remaining' | null;
     // For references
     refName?: string;
     refId?: number;

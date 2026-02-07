@@ -7,15 +7,19 @@ export function AddConnectionForm({
     groups,
     nodes,
     localNodes,
+    existingPlaceholders,
 }: {
     groups: Array<{ id: number; name: string }>;
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
+    /** Existing placeholder connections to prevent duplicates: { nodeName, type: 'missing' | 'remaining' } */
+    existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' }>;
 }) {
     const [ source, setSource ] = useState<ComboboxOption | null>(null);
     const [ target, setTarget ] = useState<ComboboxOption | null>(null);
     const [ value, setValue ] = useState('');
     const [ showGroupNode, setShowGroupNode ] = useState(false);
+    const [ placeholderType, setPlaceholderType ] = useState<'none' | 'missing' | 'remaining'>('none');
     const fetcher = useFetcher();
 
     // Build options list
@@ -75,10 +79,37 @@ export function AddConnectionForm({
         return allOptions;
     }, [ allOptions, source ]);
 
+    // Check if placeholder already exists for the selected node
+    const placeholderConflict = useMemo(() => {
+        if (placeholderType === 'none' || !existingPlaceholders) {
+            return null;
+        }
+
+        if (placeholderType === 'missing' && target?.type === 'local') {
+            const existing = existingPlaceholders.find(
+                p => p.nodeName === target.name && p.type === 'missing'
+            );
+            if (existing) {
+                return `A "Missing" placeholder already exists for "${target.name}"`;
+            }
+        }
+
+        if (placeholderType === 'remaining' && source?.type === 'local') {
+            const existing = existingPlaceholders.find(
+                p => p.nodeName === source.name && p.type === 'remaining'
+            );
+            if (existing) {
+                return `A "Remaining" placeholder already exists for "${source.name}"`;
+            }
+        }
+
+        return null;
+    }, [ placeholderType, source, target, existingPlaceholders ]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!source || !target) {
+        if (!source || !target || placeholderConflict) {
             return;
         }
 
@@ -104,9 +135,13 @@ export function AddConnectionForm({
             formData.showGroupNode = showGroupNode ? '1' : '0';
         }
 
-        // Value is only needed for direct connections
+        // Value is only needed for direct connections without placeholder
         if (source.type === 'local' && target.type === 'local') {
-            formData.value = value;
+            if (placeholderType !== 'none') {
+                formData.placeholderType = placeholderType;
+            } else {
+                formData.value = value;
+            }
         }
 
         void fetcher.submit(formData, { method: 'post' });
@@ -116,17 +151,22 @@ export function AddConnectionForm({
         setTarget(null);
         setValue('');
         setShowGroupNode(false);
+        setPlaceholderType('none');
     };
 
-    const isValueHidden = (source?.type !== 'local') || (target?.type !== 'local');
+    const isDirectConnection = source?.type === 'local' && target?.type === 'local';
+    const isValueHidden = !isDirectConnection || placeholderType !== 'none';
     const isGroupRef = source?.type === 'group' || target?.type === 'group';
-    const isValid = source && target && (isValueHidden || (value && parseFloat(value) > 0));
+
+    // Validation
+    const isValid = source && target && !placeholderConflict
+        && (isValueHidden || (value !== '' && parseFloat(value) > 0));
 
     return (
         <div className='border-t pt-4'>
             <h3 className='text-sm font-medium text-gray-700 mb-3'>Add Connection</h3>
             <fetcher.Form onSubmit={handleSubmit} className='space-y-3'>
-                <div className='grid grid-cols-[1fr,auto,1fr,auto,auto] gap-3 items-end'>
+                <div className='grid grid-cols-[1fr,auto,1fr] gap-3 items-end'>
                     {/* Source */}
                     <div>
                         <label className='text-xs text-gray-500 block mb-1'>Source</label>
@@ -151,38 +191,45 @@ export function AddConnectionForm({
                             placeholder='Type or select...'
                         />
                     </div>
-
-                    {/* Value */}
-                    <div className={isValueHidden ? 'opacity-30' : ''}>
-                        <label className='text-xs text-gray-500 block mb-1'>Value</label>
-                        <input
-                            type='number'
-                            value={value}
-                            onChange={e => setValue(e.target.value)}
-                            placeholder='0'
-                            min='0.01'
-                            step='0.01'
-                            required={!isValueHidden}
-                            disabled={isValueHidden}
-                            className='w-24 px-3 py-2 border border-gray-300 rounded-md text-sm'
-                        />
-                    </div>
-
-                    {/* Submit */}
-                    <button
-                        type='submit'
-                        disabled={!isValid}
-                        className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed'
-                    >
-                        Add
-                    </button>
                 </div>
 
-                {isValueHidden && source && target && (
-                    <p className='text-xs text-gray-500'>
-                        Value comes from the referenced {source.type !== 'local' ? 'node/group' : 'node/group'}.
-                    </p>
+                {/* Placeholder options - only for local-to-local connections */}
+                {isDirectConnection && (
+                    <div className='flex gap-4'>
+                        <label className='flex items-center gap-2 text-sm text-gray-700'>
+                            <input
+                                type='radio'
+                                name='placeholderType'
+                                checked={placeholderType === 'none'}
+                                onChange={() => setPlaceholderType('none')}
+                                className='text-blue-600 focus:ring-blue-500'
+                            />
+                            Regular connection
+                        </label>
+                        <label className='flex items-center gap-2 text-sm text-red-700'>
+                            <input
+                                type='radio'
+                                name='placeholderType'
+                                checked={placeholderType === 'missing'}
+                                onChange={() => setPlaceholderType('missing')}
+                                className='text-red-600 focus:ring-red-500'
+                            />
+                            Source provides "Missing" for Target
+                        </label>
+                        <label className='flex items-center gap-2 text-sm text-green-700'>
+                            <input
+                                type='radio'
+                                name='placeholderType'
+                                checked={placeholderType === 'remaining'}
+                                onChange={() => setPlaceholderType('remaining')}
+                                className='text-green-600 focus:ring-green-500'
+                            />
+                            Target receives "Remaining" from Source
+                        </label>
+                    </div>
                 )}
+
+                {placeholderConflict && <p className='text-xs text-red-600'>{placeholderConflict}</p>}
 
                 {isGroupRef && (
                     <label className='flex items-center gap-2 text-sm text-gray-700'>
@@ -192,9 +239,40 @@ export function AddConnectionForm({
                             onChange={e => setShowGroupNode(e.target.checked)}
                             className='rounded border-gray-300 text-blue-600 focus:ring-blue-500'
                         />
-                        Show group name as node in diagram
+                        Show group name as intermediate node in diagram
                     </label>
                 )}
+
+                {!isDirectConnection && source && target && (
+                    <p className='text-xs text-gray-500'>
+                        Value comes from the referenced {source.type !== 'local' ? 'node/group' : 'node/group'}.
+                    </p>
+                )}
+
+                {/* Value - only for regular direct connections */}
+                {isDirectConnection && placeholderType === 'none' && (
+                    <div>
+                        <label className='text-xs text-gray-500 block mb-1'>Value</label>
+                        <input
+                            type='number'
+                            value={value}
+                            onChange={e => setValue(e.target.value)}
+                            placeholder='0'
+                            min='0.01'
+                            step='0.01'
+                            className='w-32 px-3 py-2 border border-gray-300 rounded-md text-sm'
+                        />
+                    </div>
+                )}
+
+                {/* Submit */}
+                <button
+                    type='submit'
+                    disabled={!isValid}
+                    className='w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed'
+                >
+                    Add Connection
+                </button>
             </fetcher.Form>
         </div>
     );
