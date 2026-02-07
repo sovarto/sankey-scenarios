@@ -71,6 +71,20 @@
       "when": 1770452388946,
       "tag": "0009_spotty_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1770468173757,
+      "tag": "0010_curved_johnny_blaze",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1770468491991,
+      "tag": "0011_flat_green_goblin",
+      "breakpoints": true
     }
   ]
 }

@@ -4,28 +4,22 @@ import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/edit';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
+import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.group ? `Edit ${data.group.name} - ${data.project.name}` : 'Edit Group' } ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
-    const db = database();
-    const projectId = parseInt(params.projectId, 10);
+export async function loader({ request, params }: Route.LoaderArgs) {
+    const projectId = parseProjectId(params.projectId);
     const groupId = parseInt(params.groupId, 10);
 
-    if (isNaN(projectId) || isNaN(groupId)) {
-        throw new Response('Invalid ID', { status: 400 });
+    if (isNaN(groupId)) {
+        throw new Response('Invalid group ID', { status: 400 });
     }
 
-    const project = await db.query.projects.findFirst({
-        where: eq(schema.projects.id, projectId),
-        columns: { id: true, name: true }
-    });
-
-    if (!project) {
-        throw new Response('Project not found', { status: 404 });
-    }
+    const { project } = await requireProjectOwnership(request, projectId);
+    const db = database();
 
     const group = await db.query.groups.findFirst({
         where: and(eq(schema.groups.id, groupId), eq(schema.groups.projectId, projectId)),
@@ -42,15 +36,17 @@ export async function loader({ params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-    const formData = await request.formData();
-    const intent = formData.get('intent');
-    const projectId = parseInt(params.projectId, 10);
+    const projectId = parseProjectId(params.projectId);
     const groupId = parseInt(params.groupId, 10);
 
-    if (isNaN(projectId) || isNaN(groupId)) {
-        throw new Response('Invalid ID', { status: 400 });
+    if (isNaN(groupId)) {
+        throw new Response('Invalid group ID', { status: 400 });
     }
 
+    await requireProjectOwnership(request, projectId);
+
+    const formData = await request.formData();
+    const intent = formData.get('intent');
     const db = database();
 
     if (intent === 'delete') {

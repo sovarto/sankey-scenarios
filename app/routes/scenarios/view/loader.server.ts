@@ -7,11 +7,12 @@ import { buildResolvedConnections, addBalancingFlows, getExistingPlaceholders } 
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
-export async function loadScenarioView(projectId: number, scenarioId: number) {
+export async function loadScenarioView(projectId: number, scenarioId: number, userId: number) {
     const db = database();
 
+    // Verify project ownership
     const project = await db.query.projects.findFirst({
-        where: eq(schema.projects.id, projectId),
+        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, userId)),
         columns: { id: true, name: true }
     });
 

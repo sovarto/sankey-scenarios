@@ -1,6 +1,9 @@
-import { Link } from 'react-router';
+import { eq } from 'drizzle-orm';
+import { Form, Link } from 'react-router';
 import type { Route } from './+types/home';
+import { requireMember } from '~/auth/auth.server';
 import { database } from '~/database/context';
+import * as schema from '~/database/schema';
 
 export function meta({}: Route.MetaArgs) {
     return [ { title: 'Sankey Scenarios' }, {
@@ -9,10 +12,12 @@ export function meta({}: Route.MetaArgs) {
     } ];
 }
 
-export async function loader({}: Route.LoaderArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
+    const user = await requireMember(request);
     const db = database();
 
     const projects = await db.query.projects.findMany({
+        where: eq(schema.projects.userId, user.id),
         columns: { id: true, name: true },
         orderBy: (projects, { desc }) => [ desc(projects.updatedAt) ],
         limit: 5,
@@ -22,20 +27,40 @@ export async function loader({}: Route.LoaderArgs) {
         }
     });
 
-    return { projects };
+    return { projects, user };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-    const { projects } = loaderData;
+    const { projects, user } = loaderData;
+    const isAdmin = user.roles.includes('admin');
 
     return (
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <h1 className='text-3xl font-bold text-gray-900'>Sankey Scenarios</h1>
-                    <p className='mt-1 text-gray-500'>
-                        Create and manage Sankey diagrams with reusable connection groups
-                    </p>
+                    <div className='flex items-center justify-between'>
+                        <div>
+                            <h1 className='text-3xl font-bold text-gray-900'>Sankey Scenarios</h1>
+                            <p className='mt-1 text-gray-500'>
+                                Create and manage Sankey diagrams with reusable connection groups
+                            </p>
+                        </div>
+                        <div className='flex items-center gap-4'>
+                            {isAdmin && (
+                                <Link to='/admin/users' className='text-sm text-gray-600 hover:text-gray-900'>
+                                    User Management
+                                </Link>
+                            )}
+                            <div className='flex items-center gap-3'>
+                                <span className='text-sm text-gray-600'>{user.name}</span>
+                                <Form action='/logout' method='post'>
+                                    <button type='submit' className='text-sm text-gray-500 hover:text-gray-700'>
+                                        Sign out
+                                    </button>
+                                </Form>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </header>
 

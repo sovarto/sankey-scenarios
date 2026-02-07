@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/edit';
+import { requireMember } from '~/auth/auth.server';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -8,7 +9,8 @@ export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `Edit ${data.project.name} - Sankey Scenarios` : 'Edit Project' } ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+    const user = await requireMember(request);
     const db = database();
     const projectId = parseInt(params.projectId, 10);
 
@@ -17,7 +19,7 @@ export async function loader({ params }: Route.LoaderArgs) {
     }
 
     const project = await db.query.projects.findFirst({
-        where: eq(schema.projects.id, projectId)
+        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, user.id))
     });
 
     if (!project) {
@@ -28,6 +30,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+    const user = await requireMember(request);
     const formData = await request.formData();
     const intent = formData.get('intent');
     const projectId = parseInt(params.projectId, 10);
@@ -37,6 +40,16 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
 
     const db = database();
+
+    // Verify ownership
+    const project = await db.query.projects.findFirst({
+        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, user.id)),
+        columns: { id: true }
+    });
+
+    if (!project) {
+        throw new Response('Project not found', { status: 404 });
+    }
 
     if (intent === 'delete') {
         await db.delete(schema.projects).where(eq(schema.projects.id, projectId));

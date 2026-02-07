@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { Link } from 'react-router';
 import type { Route } from './+types/view';
+import { requireMember } from '~/auth/auth.server';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -8,7 +9,8 @@ export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `${data.project.name} - Sankey Scenarios` : 'Project Not Found' } ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+    const user = await requireMember(request);
     const db = database();
     const projectId = parseInt(params.projectId, 10);
 
@@ -17,7 +19,7 @@ export async function loader({ params }: Route.LoaderArgs) {
     }
 
     const project = await db.query.projects.findFirst({
-        where: eq(schema.projects.id, projectId),
+        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, user.id)),
         with: {
             scenarios: {
                 orderBy: (scenarios, { desc }) => [ desc(scenarios.updatedAt) ]

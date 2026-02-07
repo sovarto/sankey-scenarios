@@ -5,6 +5,7 @@ import type { ConnectionRowData } from './components/types';
 import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup } from './view/actions.server';
 import { loadScenarioView } from './view/loader.server';
 import { database } from '~/database/context';
+import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ {
@@ -12,26 +13,30 @@ export function meta({ data }: Route.MetaArgs) {
     } ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
-    const projectId = parseInt(params.projectId, 10);
+export async function loader({ request, params }: Route.LoaderArgs) {
+    const projectId = parseProjectId(params.projectId);
     const scenarioId = parseInt(params.scenarioId, 10);
 
-    if (isNaN(projectId) || isNaN(scenarioId)) {
-        throw new Response('Invalid IDs', { status: 400 });
+    if (isNaN(scenarioId)) {
+        throw new Response('Invalid scenario ID', { status: 400 });
     }
 
-    return loadScenarioView(projectId, scenarioId);
+    const { user } = await requireProjectOwnership(request, projectId);
+    return loadScenarioView(projectId, scenarioId, user.id);
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-    const formData = await request.formData();
-    const intent = formData.get('intent');
-    const projectId = parseInt(params.projectId, 10);
+    const projectId = parseProjectId(params.projectId);
     const scenarioId = parseInt(params.scenarioId, 10);
 
-    if (isNaN(projectId) || isNaN(scenarioId)) {
-        throw new Response('Invalid IDs', { status: 400 });
+    if (isNaN(scenarioId)) {
+        throw new Response('Invalid scenario ID', { status: 400 });
     }
+
+    await requireProjectOwnership(request, projectId);
+
+    const formData = await request.formData();
+    const intent = formData.get('intent');
 
     const db = database();
     const ctx = { db, projectId, scenarioId, formData };

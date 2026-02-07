@@ -1,5 +1,6 @@
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/new';
+import { requireMember } from '~/auth/auth.server';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -8,6 +9,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
+    const user = await requireMember(request);
     const formData = await request.formData();
     const name = formData.get('name');
     const description = formData.get('description');
@@ -19,6 +21,7 @@ export async function action({ request }: Route.ActionArgs) {
     const db = database();
 
     const [ project ] = await db.insert(schema.projects).values({
+        userId: user.id,
         name: name.trim(),
         description: typeof description === 'string' ? description.trim() || null : null
     }).returning({ id: schema.projects.id });

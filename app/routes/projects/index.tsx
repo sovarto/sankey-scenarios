@@ -1,15 +1,20 @@
+import { eq } from 'drizzle-orm';
 import { Link } from 'react-router';
 import type { Route } from './+types/index';
+import { requireMember } from '~/auth/auth.server';
 import { database } from '~/database/context';
+import * as schema from '~/database/schema';
 
 export function meta({}: Route.MetaArgs) {
     return [ { title: 'Projects - Sankey Scenarios' } ];
 }
 
-export async function loader({}: Route.LoaderArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
+    const user = await requireMember(request);
     const db = database();
 
     const projects = await db.query.projects.findMany({
+        where: eq(schema.projects.userId, user.id),
         orderBy: (projects, { desc }) => [ desc(projects.updatedAt) ],
         with: {
             scenarios: {

@@ -1,16 +1,92 @@
 import { relations } from 'drizzle-orm';
 import { integer, pgTable, real, text, timestamp, unique, varchar } from 'drizzle-orm/pg-core';
 
-// Projects - top level container for scenarios
+// ============================================
+// Users and Roles
+// ============================================
+
+// Users table
+export const users = pgTable('users', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    email: varchar({ length: 255 }).notNull().unique(),
+    passwordHash: varchar({ length: 255 }).notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    // Status: 'pending' (awaiting admin approval), 'active', 'blocked'
+    status: varchar({ length: 20 }).notNull().default('pending'),
+    // For password reset
+    resetToken: varchar({ length: 255 }),
+    resetTokenExpiresAt: timestamp(),
+    createdAt: timestamp().defaultNow().notNull(),
+    updatedAt: timestamp().defaultNow().notNull()
+});
+
+export const usersRelations = relations(users, ({ many }) => ({
+    userRoles: many(userRoles)
+}));
+
+// Roles table
+export const roles = pgTable('roles', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    name: varchar({ length: 50 }).notNull().unique(), // 'admin' or 'member'
+    description: text()
+});
+
+export const rolesRelations = relations(roles, ({ many }) => ({
+    userRoles: many(userRoles)
+}));
+
+// Junction table: users can have multiple roles
+export const userRoles = pgTable('user_roles', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    userId: integer().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    roleId: integer().notNull().references(() => roles.id, { onDelete: 'cascade' })
+}, table => [ unique().on(table.userId, table.roleId) ]);
+
+export const userRolesRelations = relations(userRoles, ({ one }) => ({
+    user: one(users, {
+        fields: [ userRoles.userId ],
+        references: [ users.id ]
+    }),
+    role: one(roles, {
+        fields: [ userRoles.roleId ],
+        references: [ roles.id ]
+    })
+}));
+
+// Sessions table for managing user sessions
+export const sessions = pgTable('sessions', {
+    id: varchar({ length: 255 }).primaryKey(),
+    userId: integer().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp().notNull(),
+    createdAt: timestamp().defaultNow().notNull()
+});
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+    user: one(users, {
+        fields: [ sessions.userId ],
+        references: [ users.id ]
+    })
+}));
+
+// ============================================
+// Projects and Scenarios
+// ============================================
+
+// Projects - top level container for scenarios, owned by a user
 export const projects = pgTable('projects', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    userId: integer().notNull().references(() => users.id, { onDelete: 'cascade' }),
     name: varchar({ length: 255 }).notNull(),
     description: text(),
     createdAt: timestamp().defaultNow().notNull(),
     updatedAt: timestamp().defaultNow().notNull()
 });
 
-export const projectsRelations = relations(projects, ({ many }) => ({
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+    user: one(users, {
+        fields: [ projects.userId ],
+        references: [ users.id ]
+    }),
     scenarios: many(scenarios),
     groups: many(groups),
     nodes: many(nodes)

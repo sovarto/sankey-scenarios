@@ -3,27 +3,16 @@ import { Link } from 'react-router';
 import type { Route } from './+types/index';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
+import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `Nodes - ${data.project.name}` : 'Nodes' } ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+    const projectId = parseProjectId(params.projectId);
+    const { project } = await requireProjectOwnership(request, projectId);
     const db = database();
-    const projectId = parseInt(params.projectId, 10);
-
-    if (isNaN(projectId)) {
-        throw new Response('Invalid project ID', { status: 400 });
-    }
-
-    const project = await db.query.projects.findFirst({
-        where: eq(schema.projects.id, projectId),
-        columns: { id: true, name: true }
-    });
-
-    if (!project) {
-        throw new Response('Project not found', { status: 404 });
-    }
 
     const nodes = await db.query.nodes.findMany({
         where: eq(schema.nodes.projectId, projectId),

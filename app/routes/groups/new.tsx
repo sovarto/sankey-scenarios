@@ -1,42 +1,26 @@
-import { eq } from 'drizzle-orm';
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/new';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
+import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `New Group - ${data.project.name}` : 'New Group' } ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
-    const db = database();
-    const projectId = parseInt(params.projectId, 10);
-
-    if (isNaN(projectId)) {
-        throw new Response('Invalid project ID', { status: 400 });
-    }
-
-    const project = await db.query.projects.findFirst({
-        where: eq(schema.projects.id, projectId),
-        columns: { id: true, name: true }
-    });
-
-    if (!project) {
-        throw new Response('Project not found', { status: 404 });
-    }
-
+export async function loader({ request, params }: Route.LoaderArgs) {
+    const projectId = parseProjectId(params.projectId);
+    const { project } = await requireProjectOwnership(request, projectId);
     return { project };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+    const projectId = parseProjectId(params.projectId);
+    await requireProjectOwnership(request, projectId);
+
     const formData = await request.formData();
     const name = formData.get('name');
     const description = formData.get('description');
-    const projectId = parseInt(params.projectId, 10);
-
-    if (isNaN(projectId)) {
-        throw new Response('Invalid project ID', { status: 400 });
-    }
 
     if (typeof name !== 'string' || !name.trim()) {
         return { error: 'Group name is required' };
