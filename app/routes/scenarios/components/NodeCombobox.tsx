@@ -4,15 +4,19 @@ import type { ComboboxOption } from './types';
 export function NodeCombobox({
     value,
     onChange,
+    onSelect,
     options,
     placeholder,
     disabled,
+    onCancel,
 }: {
     value: ComboboxOption | null;
     onChange: (option: ComboboxOption | null) => void;
+    onSelect?: (option: ComboboxOption) => void;
     options: ComboboxOption[];
     placeholder?: string;
     disabled?: boolean;
+    onCancel?: () => void;
 }) {
     const [ inputValue, setInputValue ] = useState(value?.name ?? '');
     const [ isOpen, setIsOpen ] = useState(false);
@@ -49,6 +53,14 @@ export function NodeCombobox({
         setInputValue(value?.name ?? '');
     }, [ value ]);
 
+    // Auto-focus and select all text on mount
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, []);
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newValue = e.target.value;
         setInputValue(newValue);
@@ -76,6 +88,7 @@ export function NodeCombobox({
     const handleSelect = (option: ComboboxOption) => {
         setInputValue(option.name);
         onChange(option);
+        onSelect?.(option);
         setIsOpen(false);
         inputRef.current?.focus();
     };
@@ -102,10 +115,19 @@ export function NodeCombobox({
                 e.preventDefault();
                 if (flatOptions[highlightedIndex]) {
                     handleSelect(flatOptions[highlightedIndex]);
+                } else if (inputValue.trim()) {
+                    // Create a new local node with the typed name
+                    const newLocalOption: ComboboxOption = {
+                        type: 'local',
+                        name: inputValue.trim(),
+                        display: `Local: ${inputValue.trim()}`
+                    };
+                    handleSelect(newLocalOption);
                 }
                 break;
             case 'Escape':
                 setIsOpen(false);
+                onCancel?.();
                 break;
         }
     };

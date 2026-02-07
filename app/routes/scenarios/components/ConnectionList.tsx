@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useFetcher } from 'react-router';
-import { ConnectionRow } from './ConnectionRow';
+import { EditableConnectionRow } from './EditableConnectionRow';
 import type { ConnectionRowData } from './types';
 
 export function ConnectionList({
     rows,
     projectId,
+    groups,
+    nodes,
+    localNodes,
     onDelete,
 }: {
     rows: ConnectionRowData[];
     projectId: number;
+    groups: Array<{ id: number; name: string }>;
+    nodes: Array<{ id: number; name: string; value: number }>;
+    localNodes: Array<{ id: number; name: string }>;
     onDelete: (row: ConnectionRowData) => void;
 }) {
     const [ items, setItems ] = useState(rows);
@@ -70,10 +76,13 @@ export function ConnectionList({
     return (
         <div className='space-y-2 mb-6'>
             {items.map((row, index) => (
-                <ConnectionRow
-                    key={`${row.type}-${row.id}`}
+                <EditableConnectionRow
+                    key={`${row.type}-${row.id}-${row.source}-${row.target}`}
                     row={row}
                     projectId={projectId}
+                    groups={groups}
+                    nodes={nodes}
+                    localNodes={localNodes}
                     onDelete={() => onDelete(row)}
                     isDragging={draggedIndex === index}
                     onDragStart={e => handleDragStart(e, index)}

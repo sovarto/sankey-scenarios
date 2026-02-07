@@ -5,4 +5,6 @@ export * from './NodeCombobox';
 export * from './DiagramSection';
 export * from './ConnectionList';
 export * from './ConnectionRow';
+export * from './EditableConnectionRow';
 export * from './AddConnectionForm';
+export * from './LocalNodesPanel';

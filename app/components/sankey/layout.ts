@@ -641,12 +641,15 @@ function positionFlowsOnSide(
     autoLayout: boolean,
     attachIncompletesTo: AttachPosition,
 ): void {
+    // Get flows that should be positioned at this node on this side
+    // For real nodes: include flows where useForVisiblePlacing is not false
+    // For shadow nodes: include all flows
     const nodeFlows = node.flows[side].filter(f => f.useForVisiblePlacing !== false || node.isAShadow);
     if (nodeFlows.length === 0) {
         return;
     }
 
-    const totalFlowHeight = d3.sum(nodeFlows.filter(f => !f.isAShadow || node.isAShadow), f => f.dy);
+    const totalFlowHeight = d3.sum(nodeFlows, f => f.dy);
     const totalValue = node.total[side];
 
     // Determine attachment position

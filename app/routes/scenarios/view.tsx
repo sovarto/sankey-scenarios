@@ -1,7 +1,7 @@
 import { eq, and } from 'drizzle-orm';
-import { Form, Link, useFetcher } from 'react-router';
+import { Form, Link, useFetcher, useLoaderData, useActionData } from 'react-router';
 import type { Route } from './+types/view';
-import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText } from './components';
+import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
@@ -182,6 +182,53 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     const db = database();
 
+    // Helper function to clean up unused local nodes
+    const cleanupUnusedLocalNodes = async () => {
+        // Get all local nodes for this scenario
+        const allLocalNodes = await db.query.scenarioLocalNodes.findMany({
+            where: eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
+        });
+
+        for (const localNode of allLocalNodes) {
+            // Check if this local node is used in any connection (as source or target)
+            const usedInConnection = await db.query.connections.findFirst({
+                where: and(
+                    eq(schema.connections.scenarioId, scenarioId),
+                    // Check if used as source or target
+                    eq(schema.connections.sourceLocalNodeId, localNode.id)
+                )
+            }) || await db.query.connections.findFirst({
+                where: and(
+                    eq(schema.connections.scenarioId, scenarioId),
+                    eq(schema.connections.targetLocalNodeId, localNode.id)
+                )
+            });
+
+            // Check if used in any group reference
+            const usedInGroupRef = await db.query.scenarioGroups.findFirst({
+                where: and(
+                    eq(schema.scenarioGroups.scenarioId, scenarioId),
+                    eq(schema.scenarioGroups.connectingLocalNodeId, localNode.id)
+                )
+            });
+
+            // Check if used in any node reference
+            const usedInNodeRef = await db.query.scenarioNodes.findFirst({
+                where: and(
+                    eq(schema.scenarioNodes.scenarioId, scenarioId),
+                    eq(schema.scenarioNodes.connectingLocalNodeId, localNode.id)
+                )
+            });
+
+            // If not used anywhere, delete it
+            if (!usedInConnection && !usedInGroupRef && !usedInNodeRef) {
+                await db.delete(schema.scenarioLocalNodes).where(
+                    eq(schema.scenarioLocalNodes.id, localNode.id)
+                );
+            }
+        }
+    };
+
     if (intent === 'update-name') {
         const name = formData.get('name');
         if (typeof name !== 'string' || !name.trim()) {
@@ -338,13 +385,389 @@ export async function action({ request, params }: Route.ActionArgs) {
         const connectionId = formData.get('connectionId');
         if (typeof connectionId === 'string') {
             await db.delete(schema.connections).where(eq(schema.connections.id, parseInt(connectionId, 10)));
+            await cleanupUnusedLocalNodes();
         }
+    }
+
+    if (intent === 'update-connection-source') {
+        const connectionType = formData.get('connectionType');
+        const connectionId = formData.get('connectionId');
+        const newSourceName = formData.get('newSourceName');
+        const newSourceType = formData.get('newSourceType');
+        const newSourceRefId = formData.get('newSourceRefId');
+        const refDirection = formData.get('refDirection');
+
+        if (typeof connectionId !== 'string' || typeof newSourceName !== 'string') {
+            return { error: 'Invalid parameters' };
+        }
+
+        const getOrCreateLocalNode = async (name: string): Promise<number> => {
+            const existing = await db.query.scenarioLocalNodes.findFirst({
+                where: and(
+                    eq(schema.scenarioLocalNodes.scenarioId, scenarioId),
+                    eq(schema.scenarioLocalNodes.name, name.trim())
+                )
+            });
+            if (existing) {
+                return existing.id;
+            }
+            const [ newNode ] = await db.insert(schema.scenarioLocalNodes).values({
+                scenarioId,
+                name: name.trim()
+            }).returning({ id: schema.scenarioLocalNodes.id });
+            return newNode.id;
+        };
+
+        const parsedId = parseInt(connectionId, 10);
+
+        if (connectionType === 'direct') {
+            // Check if converting to a different connection type
+            if (newSourceType === 'group' && newSourceRefId) {
+                // Convert direct connection to group-ref
+                const existing = await db.query.connections.findFirst({
+                    where: eq(schema.connections.id, parsedId)
+                });
+                if (existing) {
+                    const displayOrder = existing.displayOrder;
+                    const targetLocalNodeId = existing.targetLocalNodeId!;
+                    await db.delete(schema.connections).where(eq(schema.connections.id, parsedId));
+                    await db.insert(schema.scenarioGroups).values({
+                        scenarioId,
+                        groupId: parseInt(newSourceRefId as string, 10),
+                        connectingLocalNodeId: targetLocalNodeId,
+                        direction: 'target', // group is source, so direction='target' in row mapping
+                        displayOrder
+                    });
+                }
+            } else if (newSourceType === 'node' && newSourceRefId) {
+                // Convert direct connection to node-ref
+                const existing = await db.query.connections.findFirst({
+                    where: eq(schema.connections.id, parsedId)
+                });
+                if (existing) {
+                    const displayOrder = existing.displayOrder;
+                    const targetLocalNodeId = existing.targetLocalNodeId!;
+                    await db.delete(schema.connections).where(eq(schema.connections.id, parsedId));
+                    await db.insert(schema.scenarioNodes).values({
+                        scenarioId,
+                        nodeId: parseInt(newSourceRefId as string, 10),
+                        connectingLocalNodeId: targetLocalNodeId,
+                        direction: 'source',
+                        displayOrder
+                    });
+                }
+            } else {
+                // Just update the source local node
+                const newLocalNodeId = await getOrCreateLocalNode(newSourceName);
+                await db.update(schema.connections).set({
+                    sourceLocalNodeId: newLocalNodeId
+                }).where(eq(schema.connections.id, parsedId));
+            }
+        } else if (connectionType === 'group-ref') {
+            // Row mapping: source = group when direction='target', local node when direction='source'
+            if (refDirection === 'source') {
+                // Source IS the connecting local node - just update it
+                const newLocalNodeId = await getOrCreateLocalNode(newSourceName);
+                await db.update(schema.scenarioGroups).set({
+                    connectingLocalNodeId: newLocalNodeId
+                }).where(eq(schema.scenarioGroups.id, parsedId));
+            } else {
+                // Source IS the group itself (direction='target') - changing it to something else
+                // Delete this group ref and create appropriate new connection
+                const existingRef = await db.query.scenarioGroups.findFirst({
+                    where: eq(schema.scenarioGroups.id, parsedId),
+                    with: { connectingLocalNode: true }
+                });
+                if (existingRef) {
+                    const displayOrder = existingRef.displayOrder;
+                    const targetLocalNodeId = existingRef.connectingLocalNode.id;
+
+                    await db.delete(schema.scenarioGroups).where(eq(schema.scenarioGroups.id, parsedId));
+
+                    if (newSourceType === 'group' && newSourceRefId) {
+                        // Create new group ref with source direction
+                        await db.insert(schema.scenarioGroups).values({
+                            scenarioId,
+                            groupId: parseInt(newSourceRefId as string, 10),
+                            connectingLocalNodeId: targetLocalNodeId,
+                            direction: 'source',
+                            displayOrder
+                        });
+                    } else if (newSourceType === 'node' && newSourceRefId) {
+                        // Create node ref with source direction
+                        await db.insert(schema.scenarioNodes).values({
+                            scenarioId,
+                            nodeId: parseInt(newSourceRefId as string, 10),
+                            connectingLocalNodeId: targetLocalNodeId,
+                            direction: 'source',
+                            displayOrder
+                        });
+                    } else {
+                        // Create direct connection
+                        const newLocalNodeId = await getOrCreateLocalNode(newSourceName);
+                        await db.insert(schema.connections).values({
+                            scenarioId,
+                            sourceLocalNodeId: newLocalNodeId,
+                            targetLocalNodeId,
+                            value: 1,
+                            displayOrder
+                        });
+                    }
+                }
+            }
+        } else if (connectionType === 'node-ref') {
+            // Row mapping: source = node when direction='source', local node when direction='target'
+            if (refDirection === 'target') {
+                // Source IS the connecting local node - just update it
+                const newLocalNodeId = await getOrCreateLocalNode(newSourceName);
+                await db.update(schema.scenarioNodes).set({
+                    connectingLocalNodeId: newLocalNodeId
+                }).where(eq(schema.scenarioNodes.id, parsedId));
+            } else {
+                // Source IS the node itself (direction='source') - changing it to something else
+                const existingRef = await db.query.scenarioNodes.findFirst({
+                    where: eq(schema.scenarioNodes.id, parsedId),
+                    with: { connectingLocalNode: true, node: true }
+                });
+                if (existingRef) {
+                    const displayOrder = existingRef.displayOrder;
+                    const targetLocalNodeId = existingRef.connectingLocalNode.id;
+
+                    await db.delete(schema.scenarioNodes).where(eq(schema.scenarioNodes.id, parsedId));
+
+                    if (newSourceType === 'group' && newSourceRefId) {
+                        await db.insert(schema.scenarioGroups).values({
+                            scenarioId,
+                            groupId: parseInt(newSourceRefId as string, 10),
+                            connectingLocalNodeId: targetLocalNodeId,
+                            direction: 'source',
+                            displayOrder
+                        });
+                    } else if (newSourceType === 'node' && newSourceRefId) {
+                        await db.insert(schema.scenarioNodes).values({
+                            scenarioId,
+                            nodeId: parseInt(newSourceRefId as string, 10),
+                            connectingLocalNodeId: targetLocalNodeId,
+                            direction: 'source',
+                            displayOrder
+                        });
+                    } else {
+                        const newLocalNodeId = await getOrCreateLocalNode(newSourceName);
+                        await db.insert(schema.connections).values({
+                            scenarioId,
+                            sourceLocalNodeId: newLocalNodeId,
+                            targetLocalNodeId,
+                            value: existingRef.node.value,
+                            displayOrder
+                        });
+                    }
+                }
+            }
+        }
+        await cleanupUnusedLocalNodes();
+        return { success: true };
+    }
+
+    if (intent === 'update-connection-target') {
+        const connectionType = formData.get('connectionType');
+        const connectionId = formData.get('connectionId');
+        const newTargetName = formData.get('newTargetName');
+        const newTargetType = formData.get('newTargetType');
+        const newTargetRefId = formData.get('newTargetRefId');
+        const refDirection = formData.get('refDirection');
+
+        if (typeof connectionId !== 'string' || typeof newTargetName !== 'string') {
+            return { error: 'Invalid parameters' };
+        }
+
+        const getOrCreateLocalNode = async (name: string): Promise<number> => {
+            const existing = await db.query.scenarioLocalNodes.findFirst({
+                where: and(
+                    eq(schema.scenarioLocalNodes.scenarioId, scenarioId),
+                    eq(schema.scenarioLocalNodes.name, name.trim())
+                )
+            });
+            if (existing) {
+                return existing.id;
+            }
+            const [ newNode ] = await db.insert(schema.scenarioLocalNodes).values({
+                scenarioId,
+                name: name.trim()
+            }).returning({ id: schema.scenarioLocalNodes.id });
+            return newNode.id;
+        };
+
+        const parsedId = parseInt(connectionId, 10);
+
+        if (connectionType === 'direct') {
+            // Check if converting to a different connection type
+            if (newTargetType === 'group' && newTargetRefId) {
+                // Convert direct connection to group-ref
+                const existing = await db.query.connections.findFirst({
+                    where: eq(schema.connections.id, parsedId)
+                });
+                if (existing) {
+                    const displayOrder = existing.displayOrder;
+                    const sourceLocalNodeId = existing.sourceLocalNodeId!;
+                    await db.delete(schema.connections).where(eq(schema.connections.id, parsedId));
+                    await db.insert(schema.scenarioGroups).values({
+                        scenarioId,
+                        groupId: parseInt(newTargetRefId as string, 10),
+                        connectingLocalNodeId: sourceLocalNodeId,
+                        direction: 'source', // group is target, so direction='source' in row mapping
+                        displayOrder
+                    });
+                }
+            } else if (newTargetType === 'node' && newTargetRefId) {
+                // Convert direct connection to node-ref
+                const existing = await db.query.connections.findFirst({
+                    where: eq(schema.connections.id, parsedId)
+                });
+                if (existing) {
+                    const displayOrder = existing.displayOrder;
+                    const sourceLocalNodeId = existing.sourceLocalNodeId!;
+                    await db.delete(schema.connections).where(eq(schema.connections.id, parsedId));
+                    await db.insert(schema.scenarioNodes).values({
+                        scenarioId,
+                        nodeId: parseInt(newTargetRefId as string, 10),
+                        connectingLocalNodeId: sourceLocalNodeId,
+                        direction: 'target',
+                        displayOrder
+                    });
+                }
+            } else {
+                // Just update the target local node
+                const newLocalNodeId = await getOrCreateLocalNode(newTargetName);
+                await db.update(schema.connections).set({
+                    targetLocalNodeId: newLocalNodeId
+                }).where(eq(schema.connections.id, parsedId));
+            }
+        } else if (connectionType === 'group-ref') {
+            // Row mapping: target = group when direction='source', local node when direction='target'
+            if (refDirection === 'target') {
+                // Target IS the connecting local node - just update it
+                const newLocalNodeId = await getOrCreateLocalNode(newTargetName);
+                await db.update(schema.scenarioGroups).set({
+                    connectingLocalNodeId: newLocalNodeId
+                }).where(eq(schema.scenarioGroups.id, parsedId));
+            } else {
+                // Target IS the group itself (direction='source') - changing it to something else
+                const existingRef = await db.query.scenarioGroups.findFirst({
+                    where: eq(schema.scenarioGroups.id, parsedId),
+                    with: { connectingLocalNode: true }
+                });
+                if (existingRef) {
+                    const displayOrder = existingRef.displayOrder;
+                    const sourceLocalNodeId = existingRef.connectingLocalNode.id;
+
+                    await db.delete(schema.scenarioGroups).where(eq(schema.scenarioGroups.id, parsedId));
+
+                    if (newTargetType === 'group' && newTargetRefId) {
+                        await db.insert(schema.scenarioGroups).values({
+                            scenarioId,
+                            groupId: parseInt(newTargetRefId as string, 10),
+                            connectingLocalNodeId: sourceLocalNodeId,
+                            direction: 'target',
+                            displayOrder
+                        });
+                    } else if (newTargetType === 'node' && newTargetRefId) {
+                        await db.insert(schema.scenarioNodes).values({
+                            scenarioId,
+                            nodeId: parseInt(newTargetRefId as string, 10),
+                            connectingLocalNodeId: sourceLocalNodeId,
+                            direction: 'target',
+                            displayOrder
+                        });
+                    } else {
+                        const newLocalNodeId = await getOrCreateLocalNode(newTargetName);
+                        await db.insert(schema.connections).values({
+                            scenarioId,
+                            sourceLocalNodeId,
+                            targetLocalNodeId: newLocalNodeId,
+                            value: 1,
+                            displayOrder
+                        });
+                    }
+                }
+            }
+        } else if (connectionType === 'node-ref') {
+            // Row mapping: target = node when direction='target', local node when direction='source'
+            if (refDirection === 'source') {
+                // Target IS the connecting local node - just update it
+                const newLocalNodeId = await getOrCreateLocalNode(newTargetName);
+                await db.update(schema.scenarioNodes).set({
+                    connectingLocalNodeId: newLocalNodeId
+                }).where(eq(schema.scenarioNodes.id, parsedId));
+            } else {
+                // Target IS the node itself (direction='target') - changing it to something else
+                const existingRef = await db.query.scenarioNodes.findFirst({
+                    where: eq(schema.scenarioNodes.id, parsedId),
+                    with: { connectingLocalNode: true, node: true }
+                });
+                if (existingRef) {
+                    const displayOrder = existingRef.displayOrder;
+                    const sourceLocalNodeId = existingRef.connectingLocalNode.id;
+
+                    await db.delete(schema.scenarioNodes).where(eq(schema.scenarioNodes.id, parsedId));
+
+                    if (newTargetType === 'group' && newTargetRefId) {
+                        await db.insert(schema.scenarioGroups).values({
+                            scenarioId,
+                            groupId: parseInt(newTargetRefId as string, 10),
+                            connectingLocalNodeId: sourceLocalNodeId,
+                            direction: 'target',
+                            displayOrder
+                        });
+                    } else if (newTargetType === 'node' && newTargetRefId) {
+                        await db.insert(schema.scenarioNodes).values({
+                            scenarioId,
+                            nodeId: parseInt(newTargetRefId as string, 10),
+                            connectingLocalNodeId: sourceLocalNodeId,
+                            direction: 'target',
+                            displayOrder
+                        });
+                    } else {
+                        const newLocalNodeId = await getOrCreateLocalNode(newTargetName);
+                        await db.insert(schema.connections).values({
+                            scenarioId,
+                            sourceLocalNodeId,
+                            targetLocalNodeId: newLocalNodeId,
+                            value: existingRef.node.value,
+                            displayOrder
+                        });
+                    }
+                }
+            }
+        }
+        await cleanupUnusedLocalNodes();
+        return { success: true };
+    }
+
+    if (intent === 'update-connection-value') {
+        const connectionId = formData.get('connectionId');
+        const value = formData.get('value');
+
+        if (typeof connectionId !== 'string' || typeof value !== 'string') {
+            return { error: 'Invalid parameters' };
+        }
+
+        const numValue = parseFloat(value);
+        if (isNaN(numValue) || numValue <= 0) {
+            return { error: 'Value must be a positive number' };
+        }
+
+        await db.update(schema.connections).set({
+            value: numValue
+        }).where(eq(schema.connections.id, parseInt(connectionId, 10)));
+
+        return { success: true };
     }
 
     if (intent === 'delete-group-reference') {
         const referenceId = formData.get('referenceId');
         if (typeof referenceId === 'string') {
             await db.delete(schema.scenarioGroups).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+            await cleanupUnusedLocalNodes();
         }
     }
 
@@ -352,6 +775,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         const referenceId = formData.get('referenceId');
         if (typeof referenceId === 'string') {
             await db.delete(schema.scenarioNodes).where(eq(schema.scenarioNodes.id, parseInt(referenceId, 10)));
+            await cleanupUnusedLocalNodes();
         }
     }
 
@@ -394,9 +818,22 @@ export async function action({ request, params }: Route.ActionArgs) {
     return { success: true };
 }
 
-export default function ViewScenario({ loaderData, actionData }: Route.ComponentProps) {
+export default function ViewScenario({}: Route.ComponentProps) {
+    const loaderData = useLoaderData<typeof loader>();
+    const actionData = useActionData<typeof action>();
     const { project, scenario, resolvedConnections, groups, nodes } = loaderData;
     const fetcher = useFetcher();
+
+    // Local nodes for editing
+    const localNodes = scenario.localNodes;
+
+    // Helper to get local node name by ID
+    const getLocalNodeName = (id: number | undefined | null) => {
+        if (!id) {
+            return '';
+        }
+        return localNodes.find(ln => ln.id === id)?.name ?? '';
+    };
 
     // Build unified connection list with display order
     const connectionRows: ConnectionRowData[] = [
@@ -404,8 +841,8 @@ export default function ViewScenario({ loaderData, actionData }: Route.Component
         ...scenario.connections.map(conn => ({
             type: 'direct' as const,
             id: conn.id,
-            source: conn.sourceLocalNode?.name ?? conn.source ?? '',
-            target: conn.targetLocalNode?.name ?? conn.target ?? '',
+            source: getLocalNodeName(conn.sourceLocalNode?.id) || conn.source || '',
+            target: getLocalNodeName(conn.targetLocalNode?.id) || conn.target || '',
             sourceLocalNodeId: conn.sourceLocalNode?.id,
             targetLocalNodeId: conn.targetLocalNode?.id,
             value: conn.value,
@@ -415,8 +852,8 @@ export default function ViewScenario({ loaderData, actionData }: Route.Component
         ...scenario.groupReferences.map(ref => ({
             type: 'group-ref' as const,
             id: ref.id,
-            source: ref.direction === 'target' ? `[${ref.group.name}]` : ref.connectingLocalNode.name,
-            target: ref.direction === 'source' ? `[${ref.group.name}]` : ref.connectingLocalNode.name,
+            source: ref.direction === 'target' ? `[${ref.group.name}]` : getLocalNodeName(ref.connectingLocalNode.id),
+            target: ref.direction === 'source' ? `[${ref.group.name}]` : getLocalNodeName(ref.connectingLocalNode.id),
             value: 0, // Groups have multiple values
             displayOrder: ref.displayOrder,
             refName: ref.group.name,
@@ -428,8 +865,8 @@ export default function ViewScenario({ loaderData, actionData }: Route.Component
         ...scenario.nodeReferences.map(ref => ({
             type: 'node-ref' as const,
             id: ref.id,
-            source: ref.direction === 'source' ? ref.node.name : ref.connectingLocalNode.name,
-            target: ref.direction === 'target' ? ref.node.name : ref.connectingLocalNode.name,
+            source: ref.direction === 'source' ? ref.node.name : getLocalNodeName(ref.connectingLocalNode.id),
+            target: ref.direction === 'target' ? ref.node.name : getLocalNodeName(ref.connectingLocalNode.id),
             value: ref.node.value,
             displayOrder: ref.displayOrder,
             refName: ref.node.name,
@@ -438,9 +875,6 @@ export default function ViewScenario({ loaderData, actionData }: Route.Component
             connectingLocalNodeId: ref.connectingLocalNode.id
         })),
     ].sort((a, b) => a.displayOrder - b.displayOrder);
-
-    // Local nodes for editing
-    const localNodes = scenario.localNodes;
 
     const handleDelete = (row: ConnectionRowData) => {
         if (!confirm('Remove this connection?')) {
@@ -501,12 +935,23 @@ export default function ViewScenario({ loaderData, actionData }: Route.Component
                 <section className='bg-white rounded-lg shadow p-6 mb-8'>
                     <h2 className='text-xl font-semibold text-gray-900 mb-4'>Connections</h2>
 
-                    {/* Connection List */}
-                    <ConnectionList rows={connectionRows} projectId={project.id} onDelete={handleDelete} />
+                    {/* Connection List - key forces remount when local node names change */}
+                    <ConnectionList
+                        key={localNodes.map(ln => `${ln.id}:${ln.name}`).join(',')}
+                        rows={connectionRows}
+                        projectId={project.id}
+                        groups={groups}
+                        nodes={nodes}
+                        localNodes={localNodes}
+                        onDelete={handleDelete}
+                    />
 
                     {/* Add New Connection */}
                     <AddConnectionForm groups={groups} nodes={nodes} localNodes={localNodes} />
                 </section>
+
+                {/* Local Nodes */}
+                <LocalNodesPanel localNodes={localNodes} />
 
                 {/* Danger Zone */}
                 <section className='bg-white rounded-lg shadow p-6 border border-red-200'>
