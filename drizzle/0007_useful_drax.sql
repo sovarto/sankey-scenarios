@@ -1,0 +1,1 @@
+ALTER TABLE "scenario_groups" ADD COLUMN "showGroupNode" integer DEFAULT 0 NOT NULL;

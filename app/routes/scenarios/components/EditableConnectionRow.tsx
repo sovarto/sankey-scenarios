@@ -35,6 +35,7 @@ export function EditableConnectionRow({
     const [ displaySource, setDisplaySource ] = useState(row.source);
     const [ displayTarget, setDisplayTarget ] = useState(row.target);
     const [ displayValue, setDisplayValue ] = useState(row.value);
+    const [ showGroupNode, setShowGroupNode ] = useState(row.showGroupNode ?? false);
     const fetcher = useFetcher();
 
     // Sync display values when row changes from server
@@ -50,6 +51,9 @@ export function EditableConnectionRow({
         setDisplayValue(row.value);
     }, [ row.value ]);
 
+    useEffect(() => {
+        setShowGroupNode(row.showGroupNode ?? false);
+    }, [ row.showGroupNode ]);
     // Build options list (same logic as AddConnectionForm)
     const allOptions: ComboboxOption[] = useMemo(() => {
         const opts: ComboboxOption[] = [];
@@ -222,6 +226,19 @@ export function EditableConnectionRow({
         setEditingField(null);
     };
 
+    // Toggle showGroupNode
+    const handleShowGroupNodeChange = (checked: boolean) => {
+        setShowGroupNode(checked); // Optimistic update
+        void fetcher.submit(
+            {
+                intent: 'update-group-ref-show-node',
+                referenceId: row.id.toString(),
+                showGroupNode: checked ? '1' : '0'
+            },
+            { method: 'post' }
+        );
+    };
+
     // Get color class based on what the endpoint actually refers to
     const getColorClassForName = (name: string) => {
         // Strip brackets for group names
@@ -365,6 +382,20 @@ export function EditableConnectionRow({
                 <span className='font-medium text-gray-900'>{renderTarget()}</span>
             </div>
             {renderValue()}
+            {row.type === 'group-ref' && (
+                <label
+                    className='flex items-center gap-1 text-xs text-gray-500'
+                    title='Show group name as intermediate node in diagram'
+                >
+                    <input
+                        type='checkbox'
+                        checked={showGroupNode}
+                        onChange={e => handleShowGroupNodeChange(e.target.checked)}
+                        className='rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3 h-3'
+                    />
+                    <span>Node</span>
+                </label>
+            )}
             {getBadge()}
             <button
                 type='button'

@@ -129,21 +129,66 @@ export async function loader({ params }: Route.LoaderArgs) {
         } else if (item.type === 'group') {
             const groupRef = item.data;
             const connectingNodeName = groupRef.connectingLocalNode.name;
-            for (const conn of groupRef.group.connections) {
+            const showGroupNode = groupRef.showGroupNode === 1;
+            const groupNodeName = groupRef.group.name;
+
+            if (showGroupNode) {
+                // Calculate total value for the aggregated connection
+                const totalValue = groupRef.group.connections.reduce((sum, c) => sum + c.value, 0);
+
                 if (groupRef.direction === 'source') {
+                    // connectingNode → groupNode (one aggregated connection)
                     resolvedConnections.push({
                         source: connectingNodeName,
-                        target: conn.target ?? '',
-                        value: conn.value,
+                        target: groupNodeName,
+                        value: totalValue,
                         fromGroup: groupRef.group.name
                     });
+                    // groupNode → each group item
+                    for (const conn of groupRef.group.connections) {
+                        resolvedConnections.push({
+                            source: groupNodeName,
+                            target: conn.target ?? '',
+                            value: conn.value,
+                            fromGroup: groupRef.group.name
+                        });
+                    }
                 } else {
+                    // each group item → groupNode
+                    for (const conn of groupRef.group.connections) {
+                        resolvedConnections.push({
+                            source: conn.source ?? '',
+                            target: groupNodeName,
+                            value: conn.value,
+                            fromGroup: groupRef.group.name
+                        });
+                    }
+                    // groupNode → connectingNode (one aggregated connection)
                     resolvedConnections.push({
-                        source: conn.source ?? '',
+                        source: groupNodeName,
                         target: connectingNodeName,
-                        value: conn.value,
+                        value: totalValue,
                         fromGroup: groupRef.group.name
                     });
+                }
+            } else {
+                // No intermediate group node - direct connections
+                for (const conn of groupRef.group.connections) {
+                    if (groupRef.direction === 'source') {
+                        resolvedConnections.push({
+                            source: connectingNodeName,
+                            target: conn.target ?? '',
+                            value: conn.value,
+                            fromGroup: groupRef.group.name
+                        });
+                    } else {
+                        resolvedConnections.push({
+                            source: conn.source ?? '',
+                            target: connectingNodeName,
+                            value: conn.value,
+                            fromGroup: groupRef.group.name
+                        });
+                    }
                 }
             }
         } else {
@@ -306,11 +351,13 @@ export async function action({ request, params }: Route.ActionArgs) {
         if (sourceType === 'group' && sourceRefId) {
             const groupId = parseInt(sourceRefId as string, 10);
             const connectingLocalNodeId = await getOrCreateLocalNode(target as string);
+            const showGroupNodeValue = formData.get('showGroupNode') === '1' ? 1 : 0;
             await db.insert(schema.scenarioGroups).values({
                 scenarioId,
                 groupId,
                 connectingLocalNodeId,
-                direction: 'target' // group items flow TO target
+                direction: 'target', // group items flow TO target
+                showGroupNode: showGroupNodeValue
             });
             return { success: true };
         }
@@ -318,11 +365,13 @@ export async function action({ request, params }: Route.ActionArgs) {
         if (targetType === 'group' && targetRefId) {
             const groupId = parseInt(targetRefId as string, 10);
             const connectingLocalNodeId = await getOrCreateLocalNode(source as string);
+            const showGroupNodeValue = formData.get('showGroupNode') === '1' ? 1 : 0;
             await db.insert(schema.scenarioGroups).values({
                 scenarioId,
                 groupId,
                 connectingLocalNodeId,
-                direction: 'source' // source flows TO group items
+                direction: 'source', // source flows TO group items
+                showGroupNode: showGroupNodeValue
             });
             return { success: true };
         }
@@ -763,6 +812,18 @@ export async function action({ request, params }: Route.ActionArgs) {
         return { success: true };
     }
 
+    if (intent === 'update-group-ref-show-node') {
+        const referenceId = formData.get('referenceId');
+        const showGroupNode = formData.get('showGroupNode');
+
+        if (typeof referenceId === 'string' && typeof showGroupNode === 'string') {
+            await db.update(schema.scenarioGroups).set({
+                showGroupNode: showGroupNode === '1' ? 1 : 0
+            }).where(eq(schema.scenarioGroups.id, parseInt(referenceId, 10)));
+            return { success: true };
+        }
+    }
+
     if (intent === 'delete-group-reference') {
         const referenceId = formData.get('referenceId');
         if (typeof referenceId === 'string') {
@@ -859,7 +920,8 @@ export default function ViewScenario({}: Route.ComponentProps) {
             refName: ref.group.name,
             refId: ref.group.id,
             direction: ref.direction as 'source' | 'target',
-            connectingLocalNodeId: ref.connectingLocalNode.id
+            connectingLocalNodeId: ref.connectingLocalNode.id,
+            showGroupNode: ref.showGroupNode === 1
         })),
         // Node references
         ...scenario.nodeReferences.map(ref => ({

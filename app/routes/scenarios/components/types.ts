@@ -14,6 +14,8 @@ export interface ConnectionRowData {
     refId?: number;
     direction?: 'source' | 'target';
     connectingLocalNodeId?: number;
+    // For group references
+    showGroupNode?: boolean;
 }
 
 export type ComboboxOption = {

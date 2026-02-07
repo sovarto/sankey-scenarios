@@ -50,6 +50,13 @@
       "when": 1770423480329,
       "tag": "0006_mature_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1770428556189,
+      "tag": "0007_useful_drax",
+      "breakpoints": true
     }
   ]
 }

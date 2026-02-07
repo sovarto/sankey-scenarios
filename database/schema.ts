@@ -124,6 +124,7 @@ export const scenarioGroups = pgTable('scenario_groups', {
     groupId: integer().notNull().references(() => groups.id, { onDelete: 'cascade' }),
     connectingLocalNodeId: integer().notNull().references(() => scenarioLocalNodes.id, { onDelete: 'cascade' }),
     direction: varchar({ length: 10 }).notNull().default('source'), // 'source' or 'target'
+    showGroupNode: integer().notNull().default(0), // 0 = false, 1 = true (show group name as intermediate node)
     displayOrder: integer().notNull().default(0)
 });
 

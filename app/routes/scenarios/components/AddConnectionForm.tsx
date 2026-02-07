@@ -15,6 +15,7 @@ export function AddConnectionForm({
     const [ source, setSource ] = useState<ComboboxOption | null>(null);
     const [ target, setTarget ] = useState<ComboboxOption | null>(null);
     const [ value, setValue ] = useState('');
+    const [ showGroupNode, setShowGroupNode ] = useState(false);
     const fetcher = useFetcher();
 
     // Build options list
@@ -57,10 +58,6 @@ export function AddConnectionForm({
         return opts;
     }, [ nodes, groups, localNodes ]);
 
-    // If one side is a reference, the other must be local
-    const sourceDisabled = target !== null && target.type !== 'local';
-    const targetDisabled = source !== null && source.type !== 'local';
-
     // Filter options for each side based on the other's selection
     const sourceOptions = useMemo(() => {
         if (target && target.type !== 'local') {
@@ -97,12 +94,14 @@ export function AddConnectionForm({
             formData.sourceRefId = source.id.toString();
         } else if (source.type === 'group' && source.id) {
             formData.sourceRefId = source.id.toString();
+            formData.showGroupNode = showGroupNode ? '1' : '0';
         }
 
         if (target.type === 'node' && target.id) {
             formData.targetRefId = target.id.toString();
         } else if (target.type === 'group' && target.id) {
             formData.targetRefId = target.id.toString();
+            formData.showGroupNode = showGroupNode ? '1' : '0';
         }
 
         // Value is only needed for direct connections
@@ -116,9 +115,11 @@ export function AddConnectionForm({
         setSource(null);
         setTarget(null);
         setValue('');
+        setShowGroupNode(false);
     };
 
     const isValueHidden = (source?.type !== 'local') || (target?.type !== 'local');
+    const isGroupRef = source?.type === 'group' || target?.type === 'group';
     const isValid = source && target && (isValueHidden || (value && parseFloat(value) > 0));
 
     return (
@@ -134,7 +135,6 @@ export function AddConnectionForm({
                             onChange={setSource}
                             options={sourceOptions}
                             placeholder='Type or select...'
-                            disabled={sourceDisabled}
                         />
                     </div>
 
@@ -149,7 +149,6 @@ export function AddConnectionForm({
                             onChange={setTarget}
                             options={targetOptions}
                             placeholder='Type or select...'
-                            disabled={targetDisabled}
                         />
                     </div>
 
@@ -183,6 +182,18 @@ export function AddConnectionForm({
                     <p className='text-xs text-gray-500'>
                         Value comes from the referenced {source.type !== 'local' ? 'node/group' : 'node/group'}.
                     </p>
+                )}
+
+                {isGroupRef && (
+                    <label className='flex items-center gap-2 text-sm text-gray-700'>
+                        <input
+                            type='checkbox'
+                            checked={showGroupNode}
+                            onChange={e => setShowGroupNode(e.target.checked)}
+                            className='rounded border-gray-300 text-blue-600 focus:ring-blue-500'
+                        />
+                        Show group name as node in diagram
+                    </label>
                 )}
             </fetcher.Form>
         </div>

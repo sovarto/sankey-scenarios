@@ -4,7 +4,7 @@ import { SankeyDiagram } from '../../../components/sankey';
 export function DiagramSection(
     { resolvedConnections }: { resolvedConnections: Array<{ source: string; target: string; value: number }> },
 ) {
-    const [ isExpanded, setIsExpanded ] = useState(false);
+    const [ isExpanded, setIsExpanded ] = useState(true);
     const [ height, setHeight ] = useState(500);
     const [ isResizing, setIsResizing ] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
