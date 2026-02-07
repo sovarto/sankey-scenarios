@@ -217,6 +217,9 @@ export default function ViewScenario({}: Route.ComponentProps) {
                         targetLocalNodeId: c.targetLocalNode?.id,
                         value: c.value
                     }))}
+                    nodeReferences={scenario.nodeReferences.map(nr => ({
+                        connectingLocalNodeId: nr.connectingLocalNode?.id
+                    }))}
                 />
 
                 <section className='bg-white rounded-lg shadow p-6 border border-red-200'>

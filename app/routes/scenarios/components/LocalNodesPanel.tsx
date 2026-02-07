@@ -56,16 +56,22 @@ function computeNodeFlowInfo(localNodes: LocalNode[], connections: ConnectionInf
     return flowMap;
 }
 
+interface NodeReferenceInfo {
+    connectingLocalNodeId?: number;
+}
+
 export function LocalNodesPanel({
     localNodes,
     groups,
     projectId,
     connections,
+    nodeReferences = [],
 }: {
     localNodes: LocalNode[];
     groups: Group[];
     projectId: number;
     connections: ConnectionInfo[];
+    nodeReferences?: NodeReferenceInfo[];
 }) {
     const [ selectedNodes, setSelectedNodes ] = useState<Set<number>>(new Set());
     const [ showNewGroupInput, setShowNewGroupInput ] = useState(false);
@@ -73,8 +79,14 @@ export function LocalNodesPanel({
     const fetcher = useFetcher();
     const newGroupInputRef = useRef<HTMLInputElement>(null);
 
-    const flowInfoMap = computeNodeFlowInfo(localNodes, connections);
-    const movableNodes = localNodes.filter(n => flowInfoMap.get(n.id)?.canMove);
+    // Filter out local nodes that are already connected to project node references
+    const nodeRefLocalNodeIds = new Set(
+        nodeReferences.map(nr => nr.connectingLocalNodeId).filter((id): id is number => id != null)
+    );
+    const availableLocalNodes = localNodes.filter(n => !nodeRefLocalNodeIds.has(n.id));
+
+    const flowInfoMap = computeNodeFlowInfo(availableLocalNodes, connections);
+    const movableNodes = availableLocalNodes.filter(n => flowInfoMap.get(n.id)?.canMove);
 
     useEffect(() => {
         if (showNewGroupInput && newGroupInputRef.current) {
@@ -149,11 +161,16 @@ export function LocalNodesPanel({
             return;
         }
 
+        // Determine direction: if node has single incoming, project node is 'target'
+        // If node has single outgoing, project node is 'source'
+        const direction = flowInfo.incomingFlows.length === 1 ? 'target' : 'source';
+
         void fetcher.submit(
             {
                 intent: 'promote-to-project-node',
                 localNodeId: nodeId.toString(),
-                value: numValue.toString()
+                value: numValue.toString(),
+                direction
             },
             { method: 'post' }
         );
@@ -370,7 +387,7 @@ export function LocalNodesPanel({
             )}
 
             <div className='flex flex-wrap gap-2'>
-                {localNodes.map(node => {
+                {availableLocalNodes.map(node => {
                     const flowInfo = flowInfoMap.get(node.id);
                     return (
                         <LocalNodeChip

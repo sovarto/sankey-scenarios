@@ -668,9 +668,14 @@ export async function handlePromoteToProjectNode(ctx: ActionContext): Promise<Ac
 
     const localNodeId = formData.get('localNodeId');
     const value = formData.get('value');
+    const direction = formData.get('direction');
 
-    if (typeof localNodeId !== 'string' || typeof value !== 'string') {
-        return { error: 'Local node ID and value are required' };
+    if (typeof localNodeId !== 'string' || typeof value !== 'string' || typeof direction !== 'string') {
+        return { error: 'Local node ID, value, and direction are required' };
+    }
+
+    if (direction !== 'source' && direction !== 'target') {
+        return { error: 'Direction must be "source" or "target"' };
     }
 
     const numValue = parseFloat(value);
@@ -678,9 +683,10 @@ export async function handlePromoteToProjectNode(ctx: ActionContext): Promise<Ac
         return { error: 'Value must be a positive number' };
     }
 
+    const localNodeIdNum = parseInt(localNodeId, 10);
     const localNode = await db.query.scenarioLocalNodes.findFirst({
         where: and(
-            eq(schema.scenarioLocalNodes.id, parseInt(localNodeId, 10)),
+            eq(schema.scenarioLocalNodes.id, localNodeIdNum),
             eq(schema.scenarioLocalNodes.scenarioId, scenarioId)
         )
     });
@@ -701,12 +707,60 @@ export async function handlePromoteToProjectNode(ctx: ActionContext): Promise<Ac
         return { error: `A project node named "${localNode.name}" already exists` };
     }
 
+    // Find the connection involving this local node to determine the connecting local node
+    // direction='target' means node has incoming flow, so find connection where this node is the target
+    // direction='source' means node has outgoing flow, so find connection where this node is the source
+    let connection;
+    let connectingLocalNodeId: number;
+
+    if (direction === 'target') {
+        // Local node receives flow, find connection where it's the target
+        connection = await db.query.connections.findFirst({
+            where: and(
+                eq(schema.connections.scenarioId, scenarioId),
+                eq(schema.connections.targetLocalNodeId, localNodeIdNum)
+            )
+        });
+        if (!connection || !connection.sourceLocalNodeId) {
+            return { error: 'Could not find connection to this node' };
+        }
+        connectingLocalNodeId = connection.sourceLocalNodeId;
+    } else {
+        // Local node sends flow, find connection where it's the source
+        connection = await db.query.connections.findFirst({
+            where: and(
+                eq(schema.connections.scenarioId, scenarioId),
+                eq(schema.connections.sourceLocalNodeId, localNodeIdNum)
+            )
+        });
+        if (!connection || !connection.targetLocalNodeId) {
+            return { error: 'Could not find connection from this node' };
+        }
+        connectingLocalNodeId = connection.targetLocalNodeId;
+    }
+
     // Create the project node
     const [ newProjectNode ] = await db.insert(schema.nodes).values({
         projectId,
         name: localNode.name,
         value: numValue
     }).returning({ id: schema.nodes.id });
+
+    // Create a scenarioNode reference linking the project node to the OTHER local node
+    // Preserve the display order from the original connection
+    await db.insert(schema.scenarioNodes).values({
+        scenarioId,
+        nodeId: newProjectNode.id,
+        connectingLocalNodeId,
+        direction,
+        displayOrder: connection.displayOrder
+    });
+
+    // Delete the original direct connection
+    await db.delete(schema.connections).where(eq(schema.connections.id, connection.id));
+
+    // Delete the promoted local node (it's now represented by the project node)
+    await db.delete(schema.scenarioLocalNodes).where(eq(schema.scenarioLocalNodes.id, localNodeIdNum));
 
     await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
 
