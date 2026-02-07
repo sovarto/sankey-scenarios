@@ -919,8 +919,8 @@ function calculateLabelPositions(nodes: InternalNode[], totalStages: number, cfg
         bot: fontSize * 0.6, // generous vertical padding
         inner: fontSize * 0.5, // generous horizontal padding
         outer: fontSize * 0.5, // generous horizontal padding
-        lblMarginAfter: (cfg.nodeBorder / 2) + fontSize * 0.5,
-        lblMarginBefore: (cfg.nodeBorder / 2) + fontSize * 0.5
+        lblMarginAfter: (cfg.nodeBorder / 2) + fontSize * 0.8,
+        lblMarginBefore: (cfg.nodeBorder / 2) + fontSize * 0.8
     };
 
     for (const node of nodes) {

@@ -179,7 +179,13 @@ export function AddConnectionForm({
                 <div className='grid grid-cols-[1fr,auto,1fr] gap-3 items-end'>
                     {/* Source */}
                     <div>
-                        <label className='text-xs text-gray-500 block mb-1'>Source</label>
+                        <label
+                            className={`text-xs block mb-1 ${
+                                placeholderType === 'missing' ? 'text-red-600 font-medium' : 'text-gray-500'
+                            }`}
+                        >
+                            Source{placeholderType === 'missing' ? ' (Missing)' : ''}
+                        </label>
                         <NodeCombobox
                             value={source}
                             onChange={setSource}
@@ -193,7 +199,13 @@ export function AddConnectionForm({
 
                     {/* Target */}
                     <div>
-                        <label className='text-xs text-gray-500 block mb-1'>Target</label>
+                        <label
+                            className={`text-xs block mb-1 ${
+                                placeholderType === 'remaining' ? 'text-green-600 font-medium' : 'text-gray-500'
+                            }`}
+                        >
+                            Target{placeholderType === 'remaining' ? ' (Remaining)' : ''}
+                        </label>
                         <NodeCombobox
                             value={target}
                             onChange={setTarget}

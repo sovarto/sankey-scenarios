@@ -320,8 +320,21 @@ export function EditableConnectionRow({
         return 'text-blue-600';
     };
 
-    const getSourceColorClass = () => getColorClassForName(displaySource);
-    const getTargetColorClass = () => getColorClassForName(displayTarget);
+    const getSourceColorClass = () => {
+        // Source provides "Missing" for target - color source red (muted)
+        if (placeholderType === 'missing') {
+            return 'text-red-500 font-medium';
+        }
+        return getColorClassForName(displaySource);
+    };
+
+    const getTargetColorClass = () => {
+        // Target receives "Remaining" from source - color target green (muted)
+        if (placeholderType === 'remaining') {
+            return 'text-green-500 font-medium';
+        }
+        return getColorClassForName(displayTarget);
+    };
 
     // Render source display
     const renderSource = () => {
@@ -455,7 +468,6 @@ export function EditableConnectionRow({
                 <span className='text-gray-400'>→</span>
                 <span className='font-medium text-gray-900'>{renderTarget()}</span>
             </div>
-            {renderValue()}
             {row.type === 'direct' && (
                 <div className='flex items-center gap-2 text-xs'>
                     <label className='flex items-center gap-1 text-gray-500'>
@@ -543,6 +555,7 @@ export function EditableConnectionRow({
                     <span>Node</span>
                 </label>
             )}
+            {renderValue()}
             {getBadge()}
             <button
                 type='button'

@@ -152,9 +152,9 @@ export function SankeyDiagram({
             y,
             content: (
                 <div style={{ padding: '8px', maxWidth: 200, color: '#333' }}>
-                    <strong>{flow.source.name}</strong>
+                    <strong>{flow.source.tipName}</strong>
                     <span style={{ margin: '0 4px' }}>→</span>
-                    <strong>{flow.target.name}</strong>
+                    <strong>{flow.target.tipName}</strong>
                     <div style={{ marginTop: 4 }}>{formatTooltipValue(flow.value, diagramData.config.valueFormat)}</div>
                 </div>
             )

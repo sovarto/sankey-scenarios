@@ -2,7 +2,7 @@
  * Action handlers for scenario view page
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { getOrCreateLocalNode, cleanupUnusedLocalNodes, convertConnection } from './helpers.server';
 import type { database } from '~/database/context';
 import * as schema from '~/database/schema';
@@ -16,6 +16,23 @@ interface ActionContext {
     projectId: number;
     scenarioId: number;
     formData: FormData;
+}
+
+/**
+ * Get the next displayOrder for a new connection (max of all existing + 1)
+ */
+async function getNextDisplayOrder(db: Database, scenarioId: number): Promise<number> {
+    // Get max displayOrder from all three tables
+    const [ connMax ] = await db.select({ max: sql<number>`COALESCE(MAX(${schema.connections.displayOrder}), -1)` })
+        .from(schema.connections).where(eq(schema.connections.scenarioId, scenarioId));
+
+    const [ nodeMax ] = await db.select({ max: sql<number>`COALESCE(MAX(${schema.scenarioNodes.displayOrder}), -1)` })
+        .from(schema.scenarioNodes).where(eq(schema.scenarioNodes.scenarioId, scenarioId));
+
+    const [ groupMax ] = await db.select({ max: sql<number>`COALESCE(MAX(${schema.scenarioGroups.displayOrder}), -1)` })
+        .from(schema.scenarioGroups).where(eq(schema.scenarioGroups.scenarioId, scenarioId));
+
+    return Math.max(connMax?.max ?? -1, nodeMax?.max ?? -1, groupMax?.max ?? -1) + 1;
 }
 
 // ============================================================================
@@ -77,6 +94,9 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
     const sourceRefId = formData.get('sourceRefId');
     const targetRefId = formData.get('targetRefId');
 
+    // Get the next displayOrder for the new connection
+    const displayOrder = await getNextDisplayOrder(db, scenarioId);
+
     // Handle node references
     if (sourceType === 'node' && sourceRefId) {
         const nodeId = parseInt(sourceRefId as string, 10);
@@ -85,7 +105,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             scenarioId,
             nodeId,
             connectingLocalNodeId,
-            direction: 'source'
+            direction: 'source',
+            displayOrder
         });
         return { success: true };
     }
@@ -97,7 +118,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             scenarioId,
             nodeId,
             connectingLocalNodeId,
-            direction: 'target'
+            direction: 'target',
+            displayOrder
         });
         return { success: true };
     }
@@ -112,7 +134,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             groupId,
             connectingLocalNodeId,
             direction: 'target',
-            showGroupNode: showGroupNodeValue
+            showGroupNode: showGroupNodeValue,
+            displayOrder
         });
         return { success: true };
     }
@@ -126,7 +149,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
             groupId,
             connectingLocalNodeId,
             direction: 'source',
-            showGroupNode: showGroupNodeValue
+            showGroupNode: showGroupNodeValue,
+            displayOrder
         });
         return { success: true };
     }
@@ -160,7 +184,8 @@ export async function handleAddConnection(ctx: ActionContext): Promise<ActionRes
         targetLocalNodeId,
         value: numValue,
         placeholderType: isPlaceholder ? (placeholderType as string) : null,
-        autoValue: isAutoValue ? 1 : 0
+        autoValue: isAutoValue ? 1 : 0,
+        displayOrder
     });
 
     return { success: true };
