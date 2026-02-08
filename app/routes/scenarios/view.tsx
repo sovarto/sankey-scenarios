@@ -26,7 +26,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export default function ViewScenario({}: Route.ComponentProps) {
     const { project, scenario, resolvedConnections } = useLoaderData<typeof loader>();
     const [ isExpanded, setIsExpanded ] = useState(true);
-    const [ height, setHeight ] = useState(500);
+    const [ height, setHeight ] = useState<number | null>(null);
     const [ isResizing, setIsResizing ] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -65,8 +65,8 @@ export default function ViewScenario({}: Route.ComponentProps) {
     const wrapperClasses = isExpanded ? 'relative -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8' : '';
 
     return (
-        <div className='min-h-screen bg-gray-50'>
-            <header className='bg-white shadow-sm'>
+        <div className='h-screen flex flex-col bg-gray-50'>
+            <header className='bg-white shadow-sm flex-shrink-0'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
                     <Link to={`/projects/${project.id}`} className='text-sm text-gray-500 hover:text-gray-700'>
                         ← Back to {project.name}
@@ -86,7 +86,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                 </div>
             </header>
 
-            <main className='max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8'>
+            <main className='flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 py-4 sm:px-6 lg:px-8'>
                 {resolvedConnections.length === 0
                     ? (
                         <div className='bg-white rounded-lg shadow p-6'>
@@ -105,13 +105,13 @@ export default function ViewScenario({}: Route.ComponentProps) {
                     )
                     : (
                         <div
-                            className={wrapperClasses}
+                            className={`${wrapperClasses} h-full`}
                             style={isExpanded
                                 ? { width: 'calc(100vw - 2rem)', marginLeft: 'calc(-50vw + 50% + 1rem)' }
                                 : undefined}
                         >
-                            <section className='bg-white rounded-lg shadow p-6 relative'>
-                                <div className='flex justify-end mb-2'>
+                            <section className='bg-white rounded-lg shadow p-6 relative h-full flex flex-col'>
+                                <div className='flex justify-end mb-2 flex-shrink-0'>
                                     <button
                                         type='button'
                                         onClick={() => setIsExpanded(!isExpanded)}
@@ -151,7 +151,11 @@ export default function ViewScenario({}: Route.ComponentProps) {
                                             )}
                                     </button>
                                 </div>
-                                <div ref={containerRef} style={{ height }} className='relative'>
+                                <div
+                                    ref={containerRef}
+                                    style={height ? { height } : undefined}
+                                    className='relative flex-1 min-h-0'
+                                >
                                     <SankeyDiagram
                                         flows={resolvedConnections.map(conn => ({
                                             source: conn.source,
@@ -164,7 +168,7 @@ export default function ViewScenario({}: Route.ComponentProps) {
                                             targetNodeColor: conn.targetNodeColor
                                         }))}
                                         config={{
-                                            height,
+                                            ...(height ? { height } : {}),
                                             nodeWidth: 10,
                                             nodeHeightFactor: 50,
                                             nodeSpacingFactor: 85,
