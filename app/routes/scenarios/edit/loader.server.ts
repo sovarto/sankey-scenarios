@@ -41,7 +41,8 @@ export async function loadScenarioView(projectId: number, scenarioId: number, us
                             connections: true
                         }
                     },
-                    connectingLocalNode: true
+                    connectingLocalNode: true,
+                    nodeOrders: true
                 },
                 orderBy: (groupReferences, { asc }) => [ asc(groupReferences.displayOrder) ]
             },

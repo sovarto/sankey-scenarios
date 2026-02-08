@@ -113,6 +113,13 @@
       "when": 1770506438598,
       "tag": "0015_minor_slyde",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1770509575344,
+      "tag": "0016_crazy_loners",
+      "breakpoints": true
     }
   ]
 }

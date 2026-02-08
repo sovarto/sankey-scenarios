@@ -71,6 +71,7 @@ export type ScenarioWithRelations = {
             }>;
         };
         connectingLocalNode: { id: number; name: string };
+        nodeOrders?: Array<{ nodeName: string; displayOrder: number }>;
     }>;
     nodeReferences: Array<{
         id: number;
@@ -139,11 +140,43 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
     const groupNodeName = groupRef.group.name;
     const subNode = groupRef.subNode;
 
+    // Build a map of node order overrides for this group reference
+    const nodeOrderMap = new Map<string, number>();
+    if (groupRef.nodeOrders) {
+        for (const order of groupRef.nodeOrders) {
+            nodeOrderMap.set(order.nodeName, order.displayOrder);
+        }
+    }
+
+    // Sort group connections by per-scenario order if available, otherwise by original order
+    const sortedConnections = [ ...groupRef.group.connections ].sort((a, b) => {
+        // Get the relevant node name based on direction
+        const aNodeName = groupRef.direction === 'source' ? (a.target ?? '') : (a.source ?? '');
+        const bNodeName = groupRef.direction === 'source' ? (b.target ?? '') : (b.source ?? '');
+
+        const aOrder = nodeOrderMap.get(aNodeName);
+        const bOrder = nodeOrderMap.get(bNodeName);
+
+        // If both have overrides, sort by override
+        if (aOrder !== undefined && bOrder !== undefined) {
+            return aOrder - bOrder;
+        }
+        // If only one has override, it comes first
+        if (aOrder !== undefined) {
+            return -1;
+        }
+        if (bOrder !== undefined) {
+            return 1;
+        }
+        // If neither has override, maintain original order (stable sort)
+        return 0;
+    });
+
     // If subNode is specified, only connect to that specific node (showGroupNode is ignored)
     // This works like a direct connection with value, autoValue, placeholderType, and valueType support
     if (subNode) {
         // Find matching connections in the group to calculate default value
-        const matchingConnections = groupRef.group.connections.filter(conn => {
+        const matchingConnections = sortedConnections.filter(conn => {
             if (groupRef.direction === 'source') {
                 // We're the source, group items are targets - filter by target name
                 return conn.target === subNode;
@@ -189,9 +222,9 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
         return connections;
     }
 
-    // Original behavior when no subNode is specified
+    // Original behavior when no subNode is specified (now using sorted connections)
     if (showGroupNode) {
-        const totalValue = groupRef.group.connections.reduce((sum, c) => sum + c.value, 0);
+        const totalValue = sortedConnections.reduce((sum, c) => sum + c.value, 0);
 
         if (groupRef.direction === 'source') {
             // connectingNode → groupNode (one aggregated connection)
@@ -201,8 +234,8 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
                 value: totalValue,
                 fromGroup: groupRef.group.name
             });
-            // groupNode → each group item
-            for (const conn of groupRef.group.connections) {
+            // groupNode → each group item (in sorted order)
+            for (const conn of sortedConnections) {
                 connections.push({
                     source: groupNodeName,
                     target: conn.target ?? '',
@@ -211,8 +244,8 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
                 });
             }
         } else {
-            // each group item → groupNode
-            for (const conn of groupRef.group.connections) {
+            // each group item → groupNode (in sorted order)
+            for (const conn of sortedConnections) {
                 connections.push({
                     source: conn.source ?? '',
                     target: groupNodeName,
@@ -229,8 +262,8 @@ function resolveGroupReference(groupRef: ScenarioWithRelations['groupReferences'
             });
         }
     } else {
-        // No intermediate group node - direct connections
-        for (const conn of groupRef.group.connections) {
+        // No intermediate group node - direct connections (in sorted order)
+        for (const conn of sortedConnections) {
             if (groupRef.direction === 'source') {
                 connections.push({
                     source: connectingNodeName,

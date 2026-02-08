@@ -2,7 +2,7 @@ import { Form, Link, useFetcher, useLoaderData, useActionData } from 'react-rout
 import type { Route } from './+types/edit';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
-import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateGroupRefSubNode, handleUpdateGroupRefValue, handleUpdateGroupRefAutoValue, handleUpdateGroupRefPlaceholderType, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup } from './edit/actions.server';
+import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateGroupRefSubNode, handleUpdateGroupRefValue, handleUpdateGroupRefAutoValue, handleUpdateGroupRefPlaceholderType, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup, handleUpdateGroupNodeOrder, handleResetGroupNodeOrder } from './edit/actions.server';
 import { loadScenarioView } from './edit/loader.server';
 import { database } from '~/database/context';
 import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
@@ -87,6 +87,10 @@ export async function action({ request, params }: Route.ActionArgs) {
             return handleAddLocalNodesToGroup(ctx);
         case 'add-local-nodes-to-new-group':
             return handleAddLocalNodesToNewGroup(ctx);
+        case 'update-group-node-order':
+            return handleUpdateGroupNodeOrder(ctx);
+        case 'reset-group-node-order':
+            return handleResetGroupNodeOrder(ctx);
         default:
             return { success: true };
     }
@@ -141,7 +145,8 @@ export default function ViewScenario({}: Route.ComponentProps) {
             subNode: ref.subNode,
             subNodeValue: ref.value,
             placeholderType: ref.placeholderType as 'missing' | 'remaining' | null | undefined,
-            autoValue: ref.autoValue === 1
+            autoValue: ref.autoValue === 1,
+            nodeOrders: ref.nodeOrders?.map(o => ({ nodeName: o.nodeName, displayOrder: o.displayOrder }))
         })),
         ...scenario.nodeReferences.map(ref => ({
             type: 'node-ref' as const,

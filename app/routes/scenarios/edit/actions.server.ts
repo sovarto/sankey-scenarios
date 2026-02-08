@@ -1347,3 +1347,68 @@ export async function handleAddLocalNodesToNewGroup(ctx: ActionContext): Promise
 
     return { success: true };
 }
+
+// ============================================================================
+// Group node order actions
+// ============================================================================
+
+export async function handleUpdateGroupNodeOrder(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const groupRefId = formData.get('groupRefId');
+    const orderDataStr = formData.get('orderData');
+
+    if (typeof groupRefId !== 'string' || typeof orderDataStr !== 'string') {
+        return { error: 'Invalid parameters' };
+    }
+
+    const scenarioGroupId = parseInt(groupRefId, 10);
+    if (isNaN(scenarioGroupId)) {
+        return { error: 'Invalid group reference ID' };
+    }
+
+    let orderData: Array<{ nodeName: string; order: number }>;
+    try {
+        orderData = JSON.parse(orderDataStr);
+    } catch {
+        return { error: 'Invalid order data' };
+    }
+
+    // Delete existing orders for this group reference
+    await db.delete(schema.scenarioGroupNodeOrders).where(
+        eq(schema.scenarioGroupNodeOrders.scenarioGroupId, scenarioGroupId)
+    );
+
+    // Insert new orders
+    for (const item of orderData) {
+        await db.insert(schema.scenarioGroupNodeOrders).values({
+            scenarioGroupId,
+            nodeName: item.nodeName,
+            displayOrder: item.order
+        });
+    }
+
+    return { success: true };
+}
+
+export async function handleResetGroupNodeOrder(ctx: ActionContext): Promise<ActionResult> {
+    const { db, formData } = ctx;
+
+    const groupRefId = formData.get('groupRefId');
+
+    if (typeof groupRefId !== 'string') {
+        return { error: 'Invalid parameters' };
+    }
+
+    const scenarioGroupId = parseInt(groupRefId, 10);
+    if (isNaN(scenarioGroupId)) {
+        return { error: 'Invalid group reference ID' };
+    }
+
+    // Delete all order overrides for this group reference
+    await db.delete(schema.scenarioGroupNodeOrders).where(
+        eq(schema.scenarioGroupNodeOrders.scenarioGroupId, scenarioGroupId)
+    );
+
+    return { success: true };
+}

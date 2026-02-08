@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Link, useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber, formatLocaleNumber } from './numberUtils';
+import { ReorderGroupNodesModal } from './ReorderGroupNodesModal';
 import type { ComboboxOption, ConnectionRowData, GroupWithConnections, ValueType } from './types';
 
 /** Parse value field to extract numeric value and whether it's a percentage */
@@ -61,6 +62,7 @@ export function EditableConnectionRow({
         row.placeholderType ?? null
     );
     const [ autoValue, setAutoValue ] = useState(row.autoValue ?? false);
+    const [ showReorderModal, setShowReorderModal ] = useState(false);
     const fetcher = useFetcher();
 
     // Get sub-node options for a group
@@ -703,6 +705,25 @@ export function EditableConnectionRow({
                     <span>Node</span>
                 </label>
             )}
+            {/* Reorder button for group references without subNode */}
+            {row.type === 'group-ref' && !subNode && groupSubNodes.length > 1 && (
+                <button
+                    type='button'
+                    onClick={() => setShowReorderModal(true)}
+                    className='text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1'
+                    title='Reorder nodes in this group for this scenario'
+                >
+                    <svg className='w-3.5 h-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                        <path
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                            strokeWidth={2}
+                            d='M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4'
+                        />
+                    </svg>
+                    <span>Reorder</span>
+                </button>
+            )}
             {row.type === 'group-ref' && groupSubNodes.length > 0 && (
                 <select
                     value={subNode ?? ''}
@@ -790,6 +811,31 @@ export function EditableConnectionRow({
                     <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
                 </svg>
             </button>
+
+            {/* Reorder Modal for Group References */}
+            {row.type === 'group-ref' && row.refId && !subNode && (
+                <ReorderGroupNodesModal
+                    isOpen={showReorderModal}
+                    onClose={() => setShowReorderModal(false)}
+                    groupRefId={row.id}
+                    groupName={row.refName ?? ''}
+                    direction={row.direction ?? 'source'}
+                    nodes={groupSubNodes.map((name, index) => {
+                        // Find the value for this node from group connections
+                        const group = groups.find(g => g.id === row.refId);
+                        const conn = group?.connections.find(c =>
+                            row.direction === 'source' ? c.target === name : c.source === name
+                        );
+                        // Find existing order override if any
+                        const orderOverride = row.nodeOrders?.find(o => o.nodeName === name);
+                        return {
+                            name,
+                            value: conn?.value ?? 0,
+                            displayOrder: orderOverride?.displayOrder ?? index
+                        };
+                    })}
+                />
+            )}
         </div>
     );
 }

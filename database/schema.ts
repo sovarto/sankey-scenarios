@@ -225,7 +225,7 @@ export const scenarioGroups = pgTable('scenario_groups', {
     displayOrder: integer().notNull().default(0)
 });
 
-export const scenarioGroupsRelations = relations(scenarioGroups, ({ one }) => ({
+export const scenarioGroupsRelations = relations(scenarioGroups, ({ one, many }) => ({
     scenario: one(scenarios, {
         fields: [ scenarioGroups.scenarioId ],
         references: [ scenarios.id ]
@@ -237,7 +237,8 @@ export const scenarioGroupsRelations = relations(scenarioGroups, ({ one }) => ({
     connectingLocalNode: one(scenarioLocalNodes, {
         fields: [ scenarioGroups.connectingLocalNodeId ],
         references: [ scenarioLocalNodes.id ]
-    })
+    }),
+    nodeOrders: many(scenarioGroupNodeOrders)
 }));
 
 // Nodes - reusable single nodes with a name and value within a project
@@ -284,5 +285,21 @@ export const scenarioNodesRelations = relations(scenarioNodes, ({ one }) => ({
     connectingLocalNode: one(scenarioLocalNodes, {
         fields: [ scenarioNodes.connectingLocalNodeId ],
         references: [ scenarioLocalNodes.id ]
+    })
+}));
+
+// Per-scenario order overrides for nodes within a group reference
+// This allows reordering group nodes specifically for one scenario without affecting the group definition
+export const scenarioGroupNodeOrders = pgTable('scenario_group_node_orders', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    scenarioGroupId: integer().notNull().references(() => scenarioGroups.id, { onDelete: 'cascade' }),
+    nodeName: varchar({ length: 255 }).notNull(), // The node name within the group
+    displayOrder: integer().notNull().default(0)
+}, table => [ unique().on(table.scenarioGroupId, table.nodeName) ]);
+
+export const scenarioGroupNodeOrdersRelations = relations(scenarioGroupNodeOrders, ({ one }) => ({
+    scenarioGroup: one(scenarioGroups, {
+        fields: [ scenarioGroupNodeOrders.scenarioGroupId ],
+        references: [ scenarioGroups.id ]
     })
 }));

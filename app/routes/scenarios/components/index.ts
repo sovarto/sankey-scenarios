@@ -8,3 +8,4 @@ export * from './ConnectionRow';
 export * from './EditableConnectionRow';
 export * from './AddConnectionForm';
 export * from './LocalNodesPanel';
+export * from './ReorderGroupNodesModal';

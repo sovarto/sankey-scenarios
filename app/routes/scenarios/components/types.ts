@@ -2,6 +2,11 @@ export type ConnectionRowType = 'direct' | 'node-ref' | 'group-ref';
 
 export type ValueType = 'absolute' | 'percent';
 
+export interface GroupNodeOrder {
+    nodeName: string;
+    displayOrder: number;
+}
+
 export interface ConnectionRowData {
     type: ConnectionRowType;
     id: number;
@@ -28,6 +33,8 @@ export interface ConnectionRowData {
     subNode?: string | null;
     // For group references with subNode - custom value (null means use group's calculated value)
     subNodeValue?: number | null;
+    // For group references - per-scenario node order overrides
+    nodeOrders?: GroupNodeOrder[];
 }
 
 export type ComboboxOption = {
