@@ -25,6 +25,8 @@ export interface NodeRect {
     borderColor?: string;
     borderWidth: number;
     name: string;
+    /** Internal node identifier used for flow matching */
+    internalName: string;
     value: number;
 }
 
@@ -48,6 +50,7 @@ export interface LabelElement {
     };
     opacity: number;
     nodeColor: string;
+    nodeName: string;
 }
 
 /**
@@ -103,6 +106,7 @@ export function generateNodeRects(data: SankeyDiagramData): NodeRect[] {
         borderColor: node.borderColor,
         borderWidth: data.config.nodeBorder,
         name: node.tipName || node.name,
+        internalName: node.name,
         value: node.value
     }));
 }
@@ -130,7 +134,8 @@ export function generateLabels(data: SankeyDiagramData): LabelElement[] {
             pieces: node.label.pieces,
             highlight: node.label.highlight,
             opacity: data.config.labels.highlightOpacity,
-            nodeColor: node.color
+            nodeColor: node.color,
+            nodeName: node.name
         });
     }
 

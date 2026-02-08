@@ -72,6 +72,8 @@ export function SankeyDiagram({
     const [ highlightedNode, setHighlightedNode ] = useState<string | null>(null);
     const [ highlightedFlow, setHighlightedFlow ] = useState<number | null>(null);
     const [ containerSize, setContainerSize ] = useState<{ width: number; height: number } | null>(null);
+    const [ collapsedNodes, setCollapsedNodes ] = useState<Set<string>>(new Set());
+    const [ hoveredLabel, setHoveredLabel ] = useState<number | null>(null);
 
     // Measure container size when no explicit dimensions provided
     useLayoutEffect(() => {
@@ -135,6 +137,49 @@ export function SankeyDiagram({
     const nodeRects = useMemo(() => diagramData ? generateNodeRects(diagramData) : [], [ diagramData ]);
     const labels = useMemo(() => diagramData ? generateLabels(diagramData) : [], [ diagramData ]);
 
+    // Compute which nodes are hidden (only if ALL incoming flows are from hidden/collapsed nodes)
+    const hiddenNodes = useMemo(() => {
+        if (collapsedNodes.size === 0 || flowPaths.length === 0) {
+            return new Set<string>();
+        }
+
+        // Build incoming edges map: for each node, which nodes flow into it
+        const incomingFrom = new Map<string, Set<string>>();
+        for (const path of flowPaths) {
+            const source = path.flow.source.name;
+            const target = path.flow.target.name;
+            if (!incomingFrom.has(target)) {
+                incomingFrom.set(target, new Set());
+            }
+            incomingFrom.get(target)!.add(source);
+        }
+
+        const hidden = new Set<string>();
+        let changed = true;
+
+        // Iteratively find nodes where ALL incoming flows are from collapsed or hidden nodes
+        while (changed) {
+            changed = false;
+            for (const [ node, sources ] of incomingFrom) {
+                if (hidden.has(node) || collapsedNodes.has(node)) {
+                    continue;
+                }
+
+                // Check if ALL sources are either collapsed or hidden
+                const allSourcesBlocked = [ ...sources ].every(
+                    source => collapsedNodes.has(source) || hidden.has(source)
+                );
+
+                if (allSourcesBlocked) {
+                    hidden.add(node);
+                    changed = true;
+                }
+            }
+        }
+
+        return hidden;
+    }, [ collapsedNodes, flowPaths ]);
+
     // Handle mouse events
     const handleFlowMouseEnter = useCallback((e: React.MouseEvent, path: FlowPath) => {
         const flow = path.flow;
@@ -170,6 +215,7 @@ export function SankeyDiagram({
 
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+        const isCollapsed = collapsedNodes.has(node.internalName);
 
         setTooltip({
             visible: true,
@@ -179,11 +225,14 @@ export function SankeyDiagram({
                 <div style={{ padding: '8px', maxWidth: 200, color: '#333' }}>
                     <strong>{node.name}</strong>
                     <div style={{ marginTop: 4 }}>{formatTooltipValue(node.value, diagramData.config.valueFormat)}</div>
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#666', fontStyle: 'italic' }}>
+                        {isCollapsed ? 'Click to show outgoing flows' : 'Click to hide outgoing flows'}
+                    </div>
                 </div>
             )
         });
-        setHighlightedNode(node.name);
-    }, [ diagramData ]);
+        setHighlightedNode(node.internalName);
+    }, [ diagramData, collapsedNodes ]);
 
     const handleMouseLeave = useCallback(() => {
         setTooltip(prev => ({ ...prev, visible: false }));
@@ -205,10 +254,42 @@ export function SankeyDiagram({
     }, [ flows, onFlowClick ]);
 
     const handleNodeClick = useCallback((node: NodeRect) => {
+        // Toggle collapsed state for this node
+        setCollapsedNodes(prev => {
+            const next = new Set(prev);
+            if (next.has(node.internalName)) {
+                next.delete(node.internalName);
+            } else {
+                next.add(node.internalName);
+            }
+            return next;
+        });
+
         if (onNodeClick) {
             onNodeClick(node.name, node.value);
         }
     }, [ onNodeClick ]);
+
+    const handleLabelClick = useCallback((nodeName: string) => {
+        // Toggle collapsed state for the node associated with this label
+        setCollapsedNodes(prev => {
+            const next = new Set(prev);
+            if (next.has(nodeName)) {
+                next.delete(nodeName);
+            } else {
+                next.add(nodeName);
+            }
+            return next;
+        });
+
+        // Also trigger onNodeClick if provided
+        if (onNodeClick) {
+            const node = nodeRects.find(n => n.internalName === nodeName);
+            if (node) {
+                onNodeClick(node.name, node.value);
+            }
+        }
+    }, [ onNodeClick, nodeRects ]);
 
     if (!diagramData) {
         return (
@@ -254,6 +335,9 @@ export function SankeyDiagram({
                     {/* Flows */}
                     <g className='flows'>
                         {flowPaths.map((path) => {
+                            const sourceIsCollapsed = collapsedNodes.has(path.flow.source.name);
+                            const sourceIsHidden = hiddenNodes.has(path.flow.source.name);
+                            const isHidden = sourceIsCollapsed || sourceIsHidden;
                             const isHighlighted = highlightedFlow === path.flow.index
                                 || highlightedNode === path.flow.source.name
                                 || highlightedNode === path.flow.target.name;
@@ -265,10 +349,13 @@ export function SankeyDiagram({
                                     fill='none'
                                     stroke={path.color}
                                     strokeWidth={path.strokeWidth}
-                                    strokeOpacity={isHighlighted ? Math.min(path.opacity + 0.3, 1) : path.opacity}
+                                    strokeOpacity={isHidden
+                                        ? 0
+                                        : (isHighlighted ? Math.min(path.opacity + 0.3, 1) : path.opacity)}
                                     style={{
                                         cursor: onFlowClick ? 'pointer' : 'default',
-                                        transition: 'stroke-opacity 0.2s ease'
+                                        transition: 'stroke-opacity 0.2s ease',
+                                        pointerEvents: isHidden ? 'none' : 'auto'
                                     }}
                                     onMouseEnter={(e) => handleFlowMouseEnter(e, path)}
                                     onMouseLeave={handleMouseLeave}
@@ -281,7 +368,9 @@ export function SankeyDiagram({
                     {/* Nodes */}
                     <g className='nodes'>
                         {nodeRects.map((node, idx) => {
-                            const isHighlighted = highlightedNode === node.name;
+                            const isHighlighted = highlightedNode === node.internalName;
+                            const isCollapsed = collapsedNodes.has(node.internalName);
+                            const isHidden = hiddenNodes.has(node.internalName);
 
                             return (
                                 <g key={`node-${idx}`}>
@@ -291,13 +380,19 @@ export function SankeyDiagram({
                                         width={node.width}
                                         height={node.height}
                                         fill={node.color}
-                                        fillOpacity={node.opacity}
-                                        stroke={node.borderWidth > 0 ? node.borderColor : 'none'}
-                                        strokeWidth={node.borderWidth}
+                                        fillOpacity={isHidden ? 0 : (isCollapsed ? node.opacity * 0.6 : node.opacity)}
+                                        stroke={isHidden
+                                            ? 'none'
+                                            : (isCollapsed
+                                                ? '#333'
+                                                : (node.borderWidth > 0 ? node.borderColor : 'none'))}
+                                        strokeWidth={isCollapsed ? 2 : node.borderWidth}
+                                        strokeDasharray={isCollapsed ? '4 2' : 'none'}
                                         style={{
-                                            cursor: onNodeClick ? 'pointer' : 'default',
-                                            filter: isHighlighted ? 'brightness(1.2)' : 'none',
-                                            transition: 'filter 0.2s ease'
+                                            cursor: isHidden ? 'default' : 'pointer',
+                                            filter: isHighlighted && !isHidden ? 'brightness(1.2)' : 'none',
+                                            transition: 'filter 0.2s ease, fill-opacity 0.2s ease',
+                                            pointerEvents: isHidden ? 'none' : 'auto'
                                         }}
                                         onMouseEnter={(e) => handleNodeMouseEnter(e, node)}
                                         onMouseLeave={handleMouseLeave}
@@ -310,11 +405,32 @@ export function SankeyDiagram({
 
                     {/* Labels */}
                     <g className='labels'>
-                        {labels.map((label, idx) => {
+                        {[ ...labels ].map((label, idx) => ({ label, idx })).sort((a, b) => {
+                            // Hovered label should render last (on top)
+                            if (a.idx === hoveredLabel) {
+                                return 1;
+                            }
+                            if (b.idx === hoveredLabel) {
+                                return -1;
+                            }
+                            return 0;
+                        }).map(({ label, idx }) => {
+                            const isHidden = hiddenNodes.has(label.nodeName);
+                            const isHovered = hoveredLabel === idx;
                             const highlightColor = getLabelHighlightColor(label.nodeColor, label.opacity);
 
                             return (
-                                <g key={`label-${idx}`}>
+                                <g
+                                    key={`label-${idx}`}
+                                    style={{
+                                        opacity: isHidden ? 0 : 1,
+                                        transition: 'opacity 0.2s ease',
+                                        cursor: 'pointer'
+                                    }}
+                                    onMouseEnter={() => setHoveredLabel(idx)}
+                                    onMouseLeave={() => setHoveredLabel(null)}
+                                    onClick={() => handleLabelClick(label.nodeName)}
+                                >
                                     {/* Highlight background */}
                                     {label.highlight && label.opacity > 0 && (
                                         <rect
@@ -323,8 +439,12 @@ export function SankeyDiagram({
                                             width={label.highlight.width}
                                             height={label.highlight.height}
                                             rx={label.highlight.rx}
-                                            fill={highlightColor}
-                                            pointerEvents='none'
+                                            fill={isHovered
+                                                ? getLabelHighlightColor(
+                                                    label.nodeColor,
+                                                    Math.min(label.opacity + 0.3, 1)
+                                                )
+                                                : highlightColor}
                                         />
                                     )}
                                     {/* Label text */}
@@ -335,7 +455,6 @@ export function SankeyDiagram({
                                         dominantBaseline='central'
                                         style={{
                                             fontFamily: diagramData.config.labels.fontFamily,
-                                            pointerEvents: 'none',
                                             userSelect: 'none'
                                         }}
                                     >
