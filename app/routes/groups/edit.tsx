@@ -4,7 +4,7 @@ import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/edit';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.group ? `Edit ${data.group.name} - ${data.project.name}` : 'Edit Group' } ];
@@ -18,7 +18,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid group ID', { status: 400 });
     }
 
-    const { project } = await requireProjectOwnership(request, projectId);
+    const { project } = await requireProjectWriteAccess(request, projectId);
     const db = database();
 
     const group = await db.query.groups.findFirst({
@@ -43,7 +43,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         throw new Response('Invalid group ID', { status: 400 });
     }
 
-    await requireProjectOwnership(request, projectId);
+    await requireProjectWriteAccess(request, projectId);
 
     const formData = await request.formData();
     const intent = formData.get('intent');

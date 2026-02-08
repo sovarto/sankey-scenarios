@@ -3,7 +3,7 @@ import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/edit';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.node ? `Edit ${data.node.name} - ${data.project.name}` : 'Edit Node' } ];
@@ -17,7 +17,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid node ID', { status: 400 });
     }
 
-    const { project } = await requireProjectOwnership(request, projectId);
+    const { project } = await requireProjectWriteAccess(request, projectId);
     const db = database();
 
     const node = await db.query.nodes.findFirst({
@@ -39,7 +39,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         throw new Response('Invalid node ID', { status: 400 });
     }
 
-    await requireProjectOwnership(request, projectId);
+    await requireProjectWriteAccess(request, projectId);
 
     const formData = await request.formData();
     const intent = formData.get('intent');

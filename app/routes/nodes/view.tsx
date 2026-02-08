@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { Route } from './+types/view';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.node ? `${data.node.name} - ${data.project.name}` : 'Node Not Found' } ];
@@ -17,7 +17,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid node ID', { status: 400 });
     }
 
-    const { project } = await requireProjectOwnership(request, projectId);
+    const access = await requireProjectAccess(request, projectId);
     const db = database();
 
     const node = await db.query.nodes.findFirst({
@@ -37,11 +37,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Node not found', { status: 404 });
     }
 
-    return { project, node };
+    return { project: access.project, node, canWrite: access.canWrite };
 }
 
 export default function ViewNode({ loaderData }: Route.ComponentProps) {
-    const { project, node } = loaderData;
+    const { project, node, canWrite } = loaderData;
 
     return (
         <div className='min-h-screen bg-gray-50'>
@@ -61,12 +61,14 @@ export default function ViewNode({ loaderData }: Route.ComponentProps) {
                             {node.description && <p className='text-gray-600 mt-1'>{node.description}</p>}
                             <p className='text-sm text-gray-500'>in {project.name}</p>
                         </div>
-                        <Link
-                            to={`/projects/${project.id}/nodes/${node.id}/edit`}
-                            className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors'
-                        >
-                            Edit Node
-                        </Link>
+                        {canWrite && (
+                            <Link
+                                to={`/projects/${project.id}/nodes/${node.id}/edit`}
+                                className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors'
+                            >
+                                Edit Node
+                            </Link>
+                        )}
                     </div>
                 </div>
             </header>

@@ -6,18 +6,26 @@ import { eq, and } from 'drizzle-orm';
 import { buildResolvedConnections, addBalancingFlows, getExistingPlaceholders } from './resolvedConnections';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
+import type { ProjectAccess } from '~/utils/project-ownership.server';
 
-export async function loadScenarioView(projectId: number, scenarioId: number, userId: number) {
+export async function loadScenarioView(projectId: number, scenarioId: number, userId: number, access?: ProjectAccess) {
     const db = database();
 
-    // Verify project ownership
-    const project = await db.query.projects.findFirst({
-        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, userId)),
-        columns: { id: true, name: true }
-    });
+    // If access is provided, use it directly; otherwise verify ownership the old way
+    let project: { id: number; name: string };
+    if (access) {
+        project = access.project;
+    } else {
+        // Legacy behavior - verify project ownership
+        const foundProject = await db.query.projects.findFirst({
+            where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, userId)),
+            columns: { id: true, name: true }
+        });
 
-    if (!project) {
-        throw new Response('Project not found', { status: 404 });
+        if (!foundProject) {
+            throw new Response('Project not found', { status: 404 });
+        }
+        project = foundProject;
     }
 
     const scenario = await db.query.scenarios.findFirst({

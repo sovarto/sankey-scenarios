@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { Route } from './+types/index';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `Nodes - ${data.project.name}` : 'Nodes' } ];
@@ -11,7 +11,7 @@ export function meta({ data }: Route.MetaArgs) {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
     const projectId = parseProjectId(params.projectId);
-    const { project } = await requireProjectOwnership(request, projectId);
+    const access = await requireProjectAccess(request, projectId);
     const db = database();
 
     const nodes = await db.query.nodes.findMany({
@@ -24,11 +24,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         }
     });
 
-    return { project, nodes };
+    return { project: access.project, nodes, canWrite: access.canWrite };
 }
 
 export default function NodesIndex({ loaderData }: Route.ComponentProps) {
-    const { project, nodes } = loaderData;
+    const { project, nodes, canWrite } = loaderData;
 
     return (
         <div className='min-h-screen bg-gray-50'>
@@ -44,12 +44,14 @@ export default function NodesIndex({ loaderData }: Route.ComponentProps) {
                                 Single nodes with values that can be referenced across scenarios.
                             </p>
                         </div>
-                        <Link
-                            to={`/projects/${project.id}/nodes/new`}
-                            className='bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors'
-                        >
-                            New Node
-                        </Link>
+                        {canWrite && (
+                            <Link
+                                to={`/projects/${project.id}/nodes/new`}
+                                className='bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors'
+                            >
+                                New Node
+                            </Link>
+                        )}
                     </div>
                 </div>
             </header>
@@ -60,14 +62,18 @@ export default function NodesIndex({ loaderData }: Route.ComponentProps) {
                         <div className='text-center py-12 bg-white rounded-lg shadow'>
                             <h2 className='text-xl font-medium text-gray-900 mb-2'>No nodes yet</h2>
                             <p className='text-gray-500 mb-6'>
-                                Create your first reusable node to use across scenarios.
+                                {canWrite
+                                    ? 'Create your first reusable node to use across scenarios.'
+                                    : 'No reusable nodes have been created yet.'}
                             </p>
-                            <Link
-                                to={`/projects/${project.id}/nodes/new`}
-                                className='bg-purple-600 text-white px-6 py-3 rounded-md hover:bg-purple-700 transition-colors'
-                            >
-                                Create Node
-                            </Link>
+                            {canWrite && (
+                                <Link
+                                    to={`/projects/${project.id}/nodes/new`}
+                                    className='bg-purple-600 text-white px-6 py-3 rounded-md hover:bg-purple-700 transition-colors'
+                                >
+                                    Create Node
+                                </Link>
+                            )}
                         </div>
                     )
                     : (

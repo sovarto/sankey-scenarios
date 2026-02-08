@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { Route } from './+types/view';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.group ? `${data.group.name} - ${data.project.name}` : 'Group Not Found' } ];
@@ -17,7 +17,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid group ID', { status: 400 });
     }
 
-    const { project } = await requireProjectOwnership(request, projectId);
+    const access = await requireProjectAccess(request, projectId);
     const db = database();
 
     const group = await db.query.groups.findFirst({
@@ -38,11 +38,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Group not found', { status: 404 });
     }
 
-    return { project, group };
+    return { project: access.project, group, canWrite: access.canWrite };
 }
 
 export default function ViewGroup({ loaderData }: Route.ComponentProps) {
-    const { project, group } = loaderData;
+    const { project, group, canWrite } = loaderData;
 
     return (
         <div className='min-h-screen bg-gray-50'>
@@ -57,12 +57,14 @@ export default function ViewGroup({ loaderData }: Route.ComponentProps) {
                             {group.description && <p className='text-gray-600 mt-1'>{group.description}</p>}
                             <p className='text-sm text-gray-500'>in {project.name}</p>
                         </div>
-                        <Link
-                            to={`/projects/${project.id}/groups/${group.id}/edit`}
-                            className='px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors'
-                        >
-                            Edit Group
-                        </Link>
+                        {canWrite && (
+                            <Link
+                                to={`/projects/${project.id}/groups/${group.id}/edit`}
+                                className='px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors'
+                            >
+                                Edit Group
+                            </Link>
+                        )}
                     </div>
                 </div>
             </header>

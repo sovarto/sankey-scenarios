@@ -1,11 +1,14 @@
-import { Form, Link, useFetcher, useLoaderData, useActionData } from 'react-router';
+import { useCallback } from 'react';
+import { Form, Link, useFetcher, useLoaderData, useActionData, useRevalidator } from 'react-router';
 import type { Route } from './+types/edit';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
 import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateGroupRefSubNode, handleUpdateGroupRefValue, handleUpdateGroupRefAutoValue, handleUpdateGroupRefPlaceholderType, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup, handleUpdateGroupNodeOrder, handleResetGroupNodeOrder } from './edit/actions.server';
 import { loadScenarioView } from './edit/loader.server';
 import { database } from '~/database/context';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectAccess, requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
+import { broadcastScenarioUpdate } from '~/utils/realtime.server';
+import { useRealtime, ActiveCollaborators, ConnectionStatus } from '~/utils/useRealtime';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ {
@@ -21,9 +24,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid scenario ID', { status: 400 });
     }
 
-    const { user } = await requireProjectOwnership(request, projectId);
-    const data = await loadScenarioView(projectId, scenarioId, user.id);
-    return { ...data, userLocale: user.regionalLocale };
+    const access = await requireProjectAccess(request, projectId);
+    const data = await loadScenarioView(projectId, scenarioId, access.user.id, access);
+    return {
+        ...data,
+        userLocale: access.user.regionalLocale,
+        permission: access.permission,
+        canWrite: access.canWrite,
+        currentUserId: access.user.id,
+        currentUserName: access.user.name
+    };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -34,7 +44,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         throw new Response('Invalid scenario ID', { status: 400 });
     }
 
-    await requireProjectOwnership(request, projectId);
+    const access = await requireProjectWriteAccess(request, projectId);
 
     const formData = await request.formData();
     const intent = formData.get('intent');
@@ -42,65 +52,127 @@ export async function action({ request, params }: Route.ActionArgs) {
     const db = database();
     const ctx = { db, projectId, scenarioId, formData };
 
+    let result;
+
     switch (intent) {
         case 'update-name':
-            return handleUpdateName(ctx);
+            result = await handleUpdateName(ctx);
+            break;
         case 'update-description':
-            return handleUpdateDescription(ctx);
+            result = await handleUpdateDescription(ctx);
+            break;
         case 'delete':
+            // Delete doesn't broadcast - user is redirected away
             return handleDeleteScenario(ctx);
         case 'add-connection':
-            return handleAddConnection(ctx);
+            result = await handleAddConnection(ctx);
+            break;
         case 'delete-connection':
-            return handleDeleteConnection(ctx);
+            result = await handleDeleteConnection(ctx);
+            break;
         case 'update-connection-value':
-            return handleUpdateConnectionValue(ctx);
+            result = await handleUpdateConnectionValue(ctx);
+            break;
         case 'update-connection-placeholder-type':
-            return handleUpdateConnectionPlaceholderType(ctx);
+            result = await handleUpdateConnectionPlaceholderType(ctx);
+            break;
         case 'update-connection-auto-value':
-            return handleUpdateConnectionAutoValue(ctx);
+            result = await handleUpdateConnectionAutoValue(ctx);
+            break;
         case 'update-connection-source':
-            return handleUpdateConnectionSource(ctx);
+            result = await handleUpdateConnectionSource(ctx);
+            break;
         case 'update-connection-target':
-            return handleUpdateConnectionTarget(ctx);
+            result = await handleUpdateConnectionTarget(ctx);
+            break;
         case 'delete-group-reference':
-            return handleDeleteGroupReference(ctx);
+            result = await handleDeleteGroupReference(ctx);
+            break;
         case 'delete-node-reference':
-            return handleDeleteNodeReference(ctx);
+            result = await handleDeleteNodeReference(ctx);
+            break;
         case 'update-group-ref-show-node':
-            return handleUpdateGroupRefShowNode(ctx);
+            result = await handleUpdateGroupRefShowNode(ctx);
+            break;
         case 'update-group-ref-sub-node':
-            return handleUpdateGroupRefSubNode(ctx);
+            result = await handleUpdateGroupRefSubNode(ctx);
+            break;
         case 'update-group-ref-value':
-            return handleUpdateGroupRefValue(ctx);
+            result = await handleUpdateGroupRefValue(ctx);
+            break;
         case 'update-group-ref-auto-value':
-            return handleUpdateGroupRefAutoValue(ctx);
+            result = await handleUpdateGroupRefAutoValue(ctx);
+            break;
         case 'update-group-ref-placeholder-type':
-            return handleUpdateGroupRefPlaceholderType(ctx);
+            result = await handleUpdateGroupRefPlaceholderType(ctx);
+            break;
         case 'update-local-node':
-            return handleUpdateLocalNode(ctx);
+            result = await handleUpdateLocalNode(ctx);
+            break;
         case 'reorder-connections':
-            return handleReorderConnections(ctx);
+            result = await handleReorderConnections(ctx);
+            break;
         case 'promote-to-project-node':
-            return handlePromoteToProjectNode(ctx);
+            result = await handlePromoteToProjectNode(ctx);
+            break;
         case 'add-local-nodes-to-group':
-            return handleAddLocalNodesToGroup(ctx);
+            result = await handleAddLocalNodesToGroup(ctx);
+            break;
         case 'add-local-nodes-to-new-group':
-            return handleAddLocalNodesToNewGroup(ctx);
+            result = await handleAddLocalNodesToNewGroup(ctx);
+            break;
         case 'update-group-node-order':
-            return handleUpdateGroupNodeOrder(ctx);
+            result = await handleUpdateGroupNodeOrder(ctx);
+            break;
         case 'reset-group-node-order':
-            return handleResetGroupNodeOrder(ctx);
+            result = await handleResetGroupNodeOrder(ctx);
+            break;
         default:
-            return { success: true };
+            result = { success: true };
     }
+
+    // Broadcast update to other collaborators
+    broadcastScenarioUpdate(projectId, scenarioId, 'scenario-updated', { intent }, access.user.id);
+
+    return result;
 }
 
 export default function ViewScenario({}: Route.ComponentProps) {
     const loaderData = useLoaderData<typeof loader>();
     const actionData = useActionData<typeof action>();
-    const { project, scenario, resolvedConnections, groups, nodes, existingPlaceholders, userLocale } = loaderData;
+    const {
+        project,
+        scenario,
+        resolvedConnections,
+        groups,
+        nodes,
+        existingPlaceholders,
+        userLocale,
+        permission,
+        canWrite,
+        currentUserId,
+        currentUserName,
+    } = loaderData;
     const fetcher = useFetcher();
+    const revalidator = useRevalidator();
+
+    // Real-time collaboration
+    const handleRealtimeEvent = useCallback(async () => {
+        // When another user makes a change, revalidate to get latest data
+        await revalidator.revalidate();
+    }, [ revalidator ]);
+
+    const handleReconnect = useCallback(async () => {
+        // After reconnecting, fetch latest data
+        await revalidator.revalidate();
+    }, [ revalidator ]);
+
+    const { isConnected, activeUsers } = useRealtime({
+        projectId: project.id,
+        scenarioId: scenario.id,
+        onEvent: handleRealtimeEvent,
+        onReconnect: handleReconnect
+    });
 
     const localNodes = scenario.localNodes;
 
@@ -189,25 +261,49 @@ export default function ViewScenario({}: Route.ComponentProps) {
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to={`/projects/${project.id}`} className='text-sm text-gray-500 hover:text-gray-700'>
-                        ← Back to {project.name}
-                    </Link>
+                    <div className='flex items-center justify-between'>
+                        <Link to={`/projects/${project.id}`} className='text-sm text-gray-500 hover:text-gray-700'>
+                            ← Back to {project.name}
+                        </Link>
+                        <div className='flex items-center gap-4'>
+                            <ActiveCollaborators users={activeUsers} currentUserId={currentUserId} />
+                            <ConnectionStatus isConnected={isConnected} />
+                            {!canWrite && (
+                                <span className='px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-medium'>
+                                    View Only
+                                </span>
+                            )}
+                        </div>
+                    </div>
                     <div className='mt-2'>
-                        <InlineEditableText
-                            value={scenario.name}
-                            name='name'
-                            as='h1'
-                            className='text-3xl font-bold text-gray-900'
-                            inputClassName='text-3xl font-bold text-gray-900 w-full'
-                        />
-                        <InlineEditableText
-                            value={scenario.description ?? ''}
-                            name='description'
-                            placeholder='Click to add description...'
-                            as='p'
-                            className='text-gray-600 mt-1'
-                            inputClassName='text-gray-600 w-full'
-                        />
+                        {canWrite
+                            ? (
+                                <>
+                                    <InlineEditableText
+                                        value={scenario.name}
+                                        name='name'
+                                        as='h1'
+                                        className='text-3xl font-bold text-gray-900'
+                                        inputClassName='text-3xl font-bold text-gray-900 w-full'
+                                    />
+                                    <InlineEditableText
+                                        value={scenario.description ?? ''}
+                                        name='description'
+                                        placeholder='Click to add description...'
+                                        as='p'
+                                        className='text-gray-600 mt-1'
+                                        inputClassName='text-gray-600 w-full'
+                                    />
+                                </>
+                            )
+                            : (
+                                <>
+                                    <h1 className='text-3xl font-bold text-gray-900'>{scenario.name}</h1>
+                                    {scenario.description && (
+                                        <p className='text-gray-600 mt-1'>{scenario.description}</p>
+                                    )}
+                                </>
+                            )}
                     </div>
                 </div>
             </header>
@@ -225,52 +321,59 @@ export default function ViewScenario({}: Route.ComponentProps) {
                         groups={groups}
                         nodes={nodes}
                         localNodes={localNodes}
-                        onDelete={handleDelete}
+                        onDelete={canWrite ? handleDelete : undefined}
                         existingPlaceholders={existingPlaceholders}
                         locale={userLocale}
+                        readOnly={!canWrite}
                     />
 
-                    <AddConnectionForm
-                        groups={groups}
-                        nodes={nodes}
+                    {canWrite && (
+                        <AddConnectionForm
+                            groups={groups}
+                            nodes={nodes}
+                            localNodes={localNodes}
+                            existingPlaceholders={existingPlaceholders}
+                            locale={userLocale}
+                        />
+                    )}
+                </section>
+
+                {canWrite && (
+                    <LocalNodesPanel
                         localNodes={localNodes}
-                        existingPlaceholders={existingPlaceholders}
-                        locale={userLocale}
+                        groups={groups}
+                        projectId={project.id}
+                        connections={scenario.connections.map(c => ({
+                            sourceLocalNodeId: c.sourceLocalNode?.id,
+                            targetLocalNodeId: c.targetLocalNode?.id,
+                            value: c.value,
+                            placeholderType: c.placeholderType as 'missing' | 'remaining' | null | undefined
+                        }))}
+                        nodeReferences={scenario.nodeReferences.map(nr => ({
+                            connectingLocalNodeId: nr.connectingLocalNode?.id
+                        }))}
                     />
-                </section>
+                )}
 
-                <LocalNodesPanel
-                    localNodes={localNodes}
-                    groups={groups}
-                    projectId={project.id}
-                    connections={scenario.connections.map(c => ({
-                        sourceLocalNodeId: c.sourceLocalNode?.id,
-                        targetLocalNodeId: c.targetLocalNode?.id,
-                        value: c.value,
-                        placeholderType: c.placeholderType as 'missing' | 'remaining' | null | undefined
-                    }))}
-                    nodeReferences={scenario.nodeReferences.map(nr => ({
-                        connectingLocalNodeId: nr.connectingLocalNode?.id
-                    }))}
-                />
-
-                <section className='bg-white rounded-lg shadow p-6 border border-red-200'>
-                    <h2 className='text-lg font-semibold text-red-600 mb-4'>Danger Zone</h2>
-                    <Form method='post'>
-                        <input type='hidden' name='intent' value='delete' />
-                        <button
-                            type='submit'
-                            className='px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm'
-                            onClick={e => {
-                                if (!confirm('Are you sure you want to delete this scenario?')) {
-                                    e.preventDefault();
-                                }
-                            }}
-                        >
-                            Delete Scenario
-                        </button>
-                    </Form>
-                </section>
+                {canWrite && (
+                    <section className='bg-white rounded-lg shadow p-6 border border-red-200'>
+                        <h2 className='text-lg font-semibold text-red-600 mb-4'>Danger Zone</h2>
+                        <Form method='post'>
+                            <input type='hidden' name='intent' value='delete' />
+                            <button
+                                type='submit'
+                                className='px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm'
+                                onClick={e => {
+                                    if (!confirm('Are you sure you want to delete this scenario?')) {
+                                        e.preventDefault();
+                                    }
+                                }}
+                            >
+                                Delete Scenario
+                            </button>
+                        </Form>
+                    </section>
+                )}
             </main>
         </div>
     );

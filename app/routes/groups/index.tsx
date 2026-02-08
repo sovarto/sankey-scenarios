@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { Route } from './+types/index';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `Groups - ${data.project.name}` : 'Groups' } ];
@@ -11,7 +11,7 @@ export function meta({ data }: Route.MetaArgs) {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
     const projectId = parseProjectId(params.projectId);
-    const { project } = await requireProjectOwnership(request, projectId);
+    const access = await requireProjectAccess(request, projectId);
     const db = database();
 
     const groups = await db.query.groups.findMany({
@@ -27,11 +27,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         }
     });
 
-    return { project, groups };
+    return { project: access.project, groups, canWrite: access.canWrite };
 }
 
 export default function GroupsIndex({ loaderData }: Route.ComponentProps) {
-    const { project, groups } = loaderData;
+    const { project, groups, canWrite } = loaderData;
 
     return (
         <div className='min-h-screen bg-gray-50'>
@@ -47,12 +47,14 @@ export default function GroupsIndex({ loaderData }: Route.ComponentProps) {
                                 Groups are sets of connections that can be reused across scenarios.
                             </p>
                         </div>
-                        <Link
-                            to={`/projects/${project.id}/groups/new`}
-                            className='bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors'
-                        >
-                            New Group
-                        </Link>
+                        {canWrite && (
+                            <Link
+                                to={`/projects/${project.id}/groups/new`}
+                                className='bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors'
+                            >
+                                New Group
+                            </Link>
+                        )}
                     </div>
                 </div>
             </header>
@@ -63,14 +65,18 @@ export default function GroupsIndex({ loaderData }: Route.ComponentProps) {
                         <div className='text-center py-12 bg-white rounded-lg shadow'>
                             <h2 className='text-xl font-medium text-gray-900 mb-2'>No groups yet</h2>
                             <p className='text-gray-500 mb-6'>
-                                Create your first group to define reusable connection sets.
+                                {canWrite
+                                    ? 'Create your first group to define reusable connection sets.'
+                                    : 'No reusable connection groups have been created yet.'}
                             </p>
-                            <Link
-                                to={`/projects/${project.id}/groups/new`}
-                                className='bg-green-600 text-white px-6 py-3 rounded-md hover:bg-green-700 transition-colors'
-                            >
-                                Create Group
-                            </Link>
+                            {canWrite && (
+                                <Link
+                                    to={`/projects/${project.id}/groups/new`}
+                                    className='bg-green-600 text-white px-6 py-3 rounded-md hover:bg-green-700 transition-colors'
+                                >
+                                    Create Group
+                                </Link>
+                            )}
                         </div>
                     )
                     : (

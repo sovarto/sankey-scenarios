@@ -24,7 +24,8 @@ export const users = pgTable('users', {
 });
 
 export const usersRelations = relations(users, ({ many }) => ({
-    userRoles: many(userRoles)
+    userRoles: many(userRoles),
+    projectShares: many(projectShares)
 }));
 
 // Roles table
@@ -92,7 +93,29 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
     }),
     scenarios: many(scenarios),
     groups: many(groups),
-    nodes: many(nodes)
+    nodes: many(nodes),
+    shares: many(projectShares)
+}));
+
+// Project shares - allows sharing projects with other users
+export const projectShares = pgTable('project_shares', {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    projectId: integer().notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    userId: integer().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    // Permission level: 'readonly' or 'readwrite'
+    permission: varchar({ length: 20 }).notNull().default('readonly'),
+    createdAt: timestamp().defaultNow().notNull()
+}, table => [ unique().on(table.projectId, table.userId) ]);
+
+export const projectSharesRelations = relations(projectShares, ({ one }) => ({
+    project: one(projects, {
+        fields: [ projectShares.projectId ],
+        references: [ projects.id ]
+    }),
+    user: one(users, {
+        fields: [ projectShares.userId ],
+        references: [ users.id ]
+    })
 }));
 
 // Scenarios - each scenario is a diagram belonging to a project

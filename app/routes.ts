@@ -11,6 +11,10 @@ export default [
     route('forgot-password', 'routes/auth/forgot-password.tsx'),
     route('reset-password', 'routes/auth/reset-password.tsx'),
 
+    // API routes
+    route('api/realtime', 'routes/api/realtime.ts'),
+    route('api/projects/:projectId/shares', 'routes/api/project-shares.ts'),
+
     // Admin routes
     ...prefix('admin', [
         ...prefix('users', [ index('routes/admin/users/index.tsx'), route(':userId', 'routes/admin/users/view.tsx') ]),

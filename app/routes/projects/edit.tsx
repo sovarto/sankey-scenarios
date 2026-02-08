@@ -1,57 +1,43 @@
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/edit';
-import { requireMember } from '~/auth/auth.server';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
+import { requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ { title: data?.project ? `Edit ${data.project.name} - Sankey Scenarios` : 'Edit Project' } ];
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-    const user = await requireMember(request);
+    const projectId = parseProjectId(params.projectId);
+    const access = await requireProjectWriteAccess(request, projectId);
     const db = database();
-    const projectId = parseInt(params.projectId, 10);
-
-    if (isNaN(projectId)) {
-        throw new Response('Invalid project ID', { status: 400 });
-    }
 
     const project = await db.query.projects.findFirst({
-        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, user.id))
+        where: eq(schema.projects.id, projectId)
     });
 
     if (!project) {
         throw new Response('Project not found', { status: 404 });
     }
 
-    return { project };
+    return { project, isOwner: access.isOwner };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-    const user = await requireMember(request);
+    const projectId = parseProjectId(params.projectId);
+    const access = await requireProjectWriteAccess(request, projectId);
     const formData = await request.formData();
     const intent = formData.get('intent');
-    const projectId = parseInt(params.projectId, 10);
-
-    if (isNaN(projectId)) {
-        throw new Response('Invalid project ID', { status: 400 });
-    }
 
     const db = database();
 
-    // Verify ownership
-    const project = await db.query.projects.findFirst({
-        where: and(eq(schema.projects.id, projectId), eq(schema.projects.userId, user.id)),
-        columns: { id: true }
-    });
-
-    if (!project) {
-        throw new Response('Project not found', { status: 404 });
-    }
-
     if (intent === 'delete') {
+        // Only owner can delete
+        if (!access.isOwner) {
+            throw new Response('Only the project owner can delete this project', { status: 403 });
+        }
         await db.delete(schema.projects).where(eq(schema.projects.id, projectId));
         return redirect('/projects');
     }
@@ -73,7 +59,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function EditProject({ loaderData, actionData }: Route.ComponentProps) {
-    const { project } = loaderData;
+    const { project, isOwner } = loaderData;
 
     return (
         <div className='min-h-screen bg-gray-50'>
@@ -120,19 +106,23 @@ export default function EditProject({ loaderData, actionData }: Route.ComponentP
                     </div>
 
                     <div className='flex justify-between'>
-                        <button
-                            type='submit'
-                            name='intent'
-                            value='delete'
-                            className='px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors'
-                            onClick={e => {
-                                if (!confirm('Are you sure you want to delete this project?')) {
-                                    e.preventDefault();
-                                }
-                            }}
-                        >
-                            Delete Project
-                        </button>
+                        {isOwner
+                            ? (
+                                <button
+                                    type='submit'
+                                    name='intent'
+                                    value='delete'
+                                    className='px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors'
+                                    onClick={e => {
+                                        if (!confirm('Are you sure you want to delete this project?')) {
+                                            e.preventDefault();
+                                        }
+                                    }}
+                                >
+                                    Delete Project
+                                </button>
+                            )
+                            : <div />}
                         <div className='flex gap-4'>
                             <Link
                                 to={`/projects/${project.id}`}

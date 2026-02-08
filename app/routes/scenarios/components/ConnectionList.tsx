@@ -12,15 +12,17 @@ export function ConnectionList({
     onDelete,
     existingPlaceholders,
     locale,
+    readOnly = false,
 }: {
     rows: ConnectionRowData[];
     projectId: number;
     groups: GroupWithConnections[];
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
-    onDelete: (row: ConnectionRowData) => void;
+    onDelete?: (row: ConnectionRowData) => void;
     existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
     locale?: string | null;
+    readOnly?: boolean;
 }) {
     const [ items, setItems ] = useState(rows);
     const [ draggedIndex, setDraggedIndex ] = useState<number | null>(null);
@@ -36,12 +38,18 @@ export function ConnectionList({
     }, [ rowsKey ]);
 
     const handleDragStart = (e: React.DragEvent, index: number) => {
+        if (readOnly) {
+            return;
+        }
         setDraggedIndex(index);
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', index.toString());
     };
 
     const handleDragOver = (e: React.DragEvent, index: number) => {
+        if (readOnly) {
+            return;
+        }
         e.preventDefault();
         if (draggedIndex === null || draggedIndex === index) {
             return;
@@ -87,13 +95,14 @@ export function ConnectionList({
                     groups={groups}
                     nodes={nodes}
                     localNodes={localNodes}
-                    onDelete={() => onDelete(row)}
+                    onDelete={readOnly || !onDelete ? undefined : () => onDelete(row)}
                     isDragging={draggedIndex === index}
-                    onDragStart={e => handleDragStart(e, index)}
-                    onDragOver={e => handleDragOver(e, index)}
-                    onDragEnd={handleDragEnd}
+                    onDragStart={readOnly ? undefined : e => handleDragStart(e, index)}
+                    onDragOver={readOnly ? undefined : e => handleDragOver(e, index)}
+                    onDragEnd={readOnly ? undefined : handleDragEnd}
                     existingPlaceholders={existingPlaceholders}
                     locale={locale}
+                    readOnly={readOnly}
                 />
             ))}
         </div>

@@ -25,13 +25,14 @@ interface EditableConnectionRowProps {
     groups: GroupWithConnections[];
     nodes: Array<{ id: number; name: string; value: number }>;
     localNodes: Array<{ id: number; name: string }>;
-    onDelete: () => void;
+    onDelete?: () => void;
     isDragging?: boolean;
     onDragStart?: (e: React.DragEvent) => void;
     onDragOver?: (e: React.DragEvent) => void;
     onDragEnd?: () => void;
     existingPlaceholders?: Array<{ nodeName: string; type: 'missing' | 'remaining' | 'auto'; connectionId?: number }>;
     locale?: string | null;
+    readOnly?: boolean;
 }
 
 export function EditableConnectionRow({
@@ -47,6 +48,7 @@ export function EditableConnectionRow({
     onDragEnd,
     existingPlaceholders,
     locale,
+    readOnly = false,
 }: EditableConnectionRowProps) {
     const [ editingField, setEditingField ] = useState<'source' | 'target' | 'value' | null>(null);
     const [ editSource, setEditSource ] = useState<ComboboxOption | null>(null);
@@ -217,6 +219,10 @@ export function EditableConnectionRow({
 
     // Start editing source
     const handleSourceClick = () => {
+        if (readOnly) {
+            return;
+        }
+
         // For group-refs where the group is the source, use refName directly
         if (row.type === 'group-ref' && row.direction === 'target' && row.refName) {
             const currentOption = allOptions.find(o => o.type === 'group' && o.name === row.refName);
@@ -244,6 +250,10 @@ export function EditableConnectionRow({
 
     // Start editing target
     const handleTargetClick = () => {
+        if (readOnly) {
+            return;
+        }
+
         // For group-refs where the group is the target, use refName directly
         if (row.type === 'group-ref' && row.direction === 'source' && row.refName) {
             const currentOption = allOptions.find(o => o.type === 'group' && o.name === row.refName);
@@ -270,6 +280,9 @@ export function EditableConnectionRow({
 
     // Start editing value
     const handleValueClick = () => {
+        if (readOnly) {
+            return;
+        }
         if (!canEditValue) {
             return;
         }

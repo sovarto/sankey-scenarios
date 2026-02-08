@@ -3,7 +3,7 @@ import { Link, useLoaderData } from 'react-router';
 import type { Route } from './+types/view';
 import { loadScenarioView } from './edit/loader.server';
 import { SankeyDiagram } from '~/components/sankey';
-import { requireProjectOwnership, parseProjectId } from '~/utils/project-ownership.server';
+import { requireProjectAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
     return [ {
@@ -19,12 +19,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid scenario ID', { status: 400 });
     }
 
-    const { user } = await requireProjectOwnership(request, projectId);
-    return loadScenarioView(projectId, scenarioId, user.id);
+    const access = await requireProjectAccess(request, projectId);
+    const data = await loadScenarioView(projectId, scenarioId, access.user.id, access);
+    return { ...data, canWrite: access.canWrite };
 }
 
 export default function ViewScenario({}: Route.ComponentProps) {
-    const { project, scenario, resolvedConnections } = useLoaderData<typeof loader>();
+    const { project, scenario, resolvedConnections, canWrite } = useLoaderData<typeof loader>();
     const [ isExpanded, setIsExpanded ] = useState(true);
     const [ height, setHeight ] = useState<number | null>(null);
     const [ isResizing, setIsResizing ] = useState(false);
@@ -76,12 +77,14 @@ export default function ViewScenario({}: Route.ComponentProps) {
                             <h1 className='text-3xl font-bold text-gray-900'>{scenario.name}</h1>
                             {scenario.description && <p className='text-gray-600 mt-1'>{scenario.description}</p>}
                         </div>
-                        <Link
-                            to={`/projects/${project.id}/scenarios/${scenario.id}/edit`}
-                            className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
-                        >
-                            Edit Scenario
-                        </Link>
+                        {canWrite && (
+                            <Link
+                                to={`/projects/${project.id}/scenarios/${scenario.id}/edit`}
+                                className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
+                            >
+                                Edit Scenario
+                            </Link>
+                        )}
                     </div>
                 </div>
             </header>
@@ -93,12 +96,14 @@ export default function ViewScenario({}: Route.ComponentProps) {
                             <div className='bg-gray-100 rounded-lg h-64 flex items-center justify-center'>
                                 <div className='text-center'>
                                     <p className='text-gray-500 mb-4'>No connections yet.</p>
-                                    <Link
-                                        to={`/projects/${project.id}/scenarios/${scenario.id}/edit`}
-                                        className='text-blue-600 hover:text-blue-800'
-                                    >
-                                        Add connections →
-                                    </Link>
+                                    {canWrite && (
+                                        <Link
+                                            to={`/projects/${project.id}/scenarios/${scenario.id}/edit`}
+                                            className='text-blue-600 hover:text-blue-800'
+                                        >
+                                            Add connections →
+                                        </Link>
+                                    )}
                                 </div>
                             </div>
                         </div>
