@@ -429,13 +429,14 @@ export function addBalancingFlows(connections: ResolvedConnection[]): ResolvedCo
         for (const [ nodeName, balance ] of nodeBalance) {
             nodeIncoming.set(nodeName, balance.incoming);
         }
-        // Add contributions from resolved placeholders
+        // Add contributions from "missing" placeholders to target's incoming
+        // (Note: "remaining" placeholders already have their target incoming in nodeBalance)
         for (let i = 0; i < resolvedConnections.length; i++) {
             const conn = resolvedConnections[i];
-            if (conn.placeholderType) {
+            if (conn.placeholderType === 'missing') {
                 const resolvedValue = placeholderValues.get(i) ?? 0;
                 if (resolvedValue > 0) {
-                    // Placeholder contributes to target's incoming
+                    // Missing placeholder contributes to target's incoming
                     nodeIncoming.set(conn.target, (nodeIncoming.get(conn.target) ?? 0) + resolvedValue);
                 }
             }
