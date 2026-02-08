@@ -40,17 +40,20 @@ export interface LabelElement {
         size: number;
         weight: string | number;
         newLine?: boolean;
+        isValue?: boolean;
     }>;
-    highlight?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        rx: number;
-    };
+    /** Compact label pieces (name only, no value) */
+    compactPieces: Array<{
+        text: string;
+        size: number;
+        weight: string | number;
+        newLine?: boolean;
+    }>;
     opacity: number;
     nodeColor: string;
     nodeName: string;
+    /** Node value for collision priority (higher value = higher priority to stay full) */
+    value: number;
 }
 
 /**
@@ -132,10 +135,11 @@ export function generateLabels(data: SankeyDiagramData): LabelElement[] {
             y: node.label.y,
             dy: node.label.dy,
             pieces: node.label.pieces,
-            highlight: node.label.highlight,
+            compactPieces: node.label.compactPieces,
             opacity: data.config.labels.highlightOpacity,
             nodeColor: node.color,
-            nodeName: node.name
+            nodeName: node.name,
+            value: node.value
         });
     }
 

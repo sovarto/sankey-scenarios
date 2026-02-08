@@ -3,7 +3,7 @@ import { Form, Link, useFetcher, useLoaderData, useActionData, useRevalidator } 
 import type { Route } from './+types/edit';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
-import { handleUpdateName, handleUpdateDescription, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateGroupRefSubNode, handleUpdateGroupRefValue, handleUpdateGroupRefAutoValue, handleUpdateGroupRefPlaceholderType, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup, handleUpdateGroupNodeOrder, handleResetGroupNodeOrder } from './edit/actions.server';
+import { handleUpdateName, handleUpdateDescription, handleUpdateAutoFitLabels, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateGroupRefSubNode, handleUpdateGroupRefValue, handleUpdateGroupRefAutoValue, handleUpdateGroupRefPlaceholderType, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup, handleUpdateGroupNodeOrder, handleResetGroupNodeOrder } from './edit/actions.server';
 import { loadScenarioView } from './edit/loader.server';
 import { database } from '~/database/context';
 import { requireProjectAccess, requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
@@ -60,6 +60,9 @@ export async function action({ request, params }: Route.ActionArgs) {
             break;
         case 'update-description':
             result = await handleUpdateDescription(ctx);
+            break;
+        case 'update-auto-fit-labels':
+            result = await handleUpdateAutoFitLabels(ctx);
             break;
         case 'delete':
             // Delete doesn't broadcast - user is redirected away
@@ -154,7 +157,15 @@ export default function ViewScenario({}: Route.ComponentProps) {
         currentUserName,
     } = loaderData;
     const fetcher = useFetcher();
+    const autoFitFetcher = useFetcher();
     const revalidator = useRevalidator();
+
+    const handleAutoFitLabelsChange = useCallback((value: boolean) => {
+        void autoFitFetcher.submit(
+            { intent: 'update-auto-fit-labels', autoFitLabels: value.toString() },
+            { method: 'post' }
+        );
+    }, [ autoFitFetcher ]);
 
     // Real-time collaboration
     const handleRealtimeEvent = useCallback(async () => {
@@ -324,7 +335,11 @@ export default function ViewScenario({}: Route.ComponentProps) {
             </header>
 
             <main className='max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8'>
-                <DiagramSection resolvedConnections={resolvedConnections} />
+                <DiagramSection
+                    resolvedConnections={resolvedConnections}
+                    initialAutoFitLabels={scenario.autoFitLabels}
+                    onAutoFitLabelsChange={canWrite ? handleAutoFitLabelsChange : undefined}
+                />
 
                 <section className='bg-white rounded-lg shadow p-6 mb-8'>
                     <h2 className='text-xl font-semibold text-gray-900 mb-4'>Connections</h2>

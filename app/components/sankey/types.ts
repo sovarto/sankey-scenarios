@@ -149,6 +149,8 @@ export interface LabelPiece {
     size: number;
     weight: number | string;
     newLine?: boolean;
+    /** Whether this piece is a value (used to filter for compact labels) */
+    isValue?: boolean;
 }
 
 export interface SankeyMargin {
@@ -164,16 +166,8 @@ export interface NodeLabel {
     y: number;
     dy: number;
     pieces: LabelPiece[];
-    width: number;
-    height: number;
-    line1Height: number;
-    highlight?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        rx: number;
-    };
+    /** Compact label pieces (name only, no value) */
+    compactPieces: LabelPiece[];
 }
 
 export interface InternalFlow {

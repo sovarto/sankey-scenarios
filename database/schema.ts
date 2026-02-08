@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, real, text, timestamp, unique, varchar } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgTable, real, text, timestamp, unique, varchar } from 'drizzle-orm/pg-core';
 
 // ============================================
 // Users and Roles
@@ -124,6 +124,7 @@ export const scenarios = pgTable('scenarios', {
     projectId: integer().notNull().references(() => projects.id, { onDelete: 'cascade' }),
     name: varchar({ length: 255 }).notNull(),
     description: text(),
+    autoFitLabels: boolean().default(false).notNull(),
     createdAt: timestamp().defaultNow().notNull(),
     updatedAt: timestamp().defaultNow().notNull()
 });

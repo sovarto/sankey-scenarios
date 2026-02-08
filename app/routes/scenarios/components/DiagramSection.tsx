@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { SankeyDiagram } from '../../../components/sankey';
 
-export function DiagramSection({ resolvedConnections }: {
+interface DiagramSectionProps {
     resolvedConnections: Array<{
         source: string;
         target: string;
@@ -12,16 +12,35 @@ export function DiagramSection({ resolvedConnections }: {
         sourceNodeColor?: string;
         targetNodeColor?: string;
     }>;
-}) {
+    initialAutoFitLabels?: boolean;
+    onAutoFitLabelsChange?: (value: boolean) => void;
+}
+
+export function DiagramSection(
+    { resolvedConnections, initialAutoFitLabels = false, onAutoFitLabelsChange }: DiagramSectionProps,
+) {
     const [ isExpanded, setIsExpanded ] = useState(true);
     const [ height, setHeight ] = useState(500);
     const [ isResizing, setIsResizing ] = useState(false);
+    const [ autoFitLabels, setAutoFitLabels ] = useState(initialAutoFitLabels);
     const containerRef = useRef<HTMLDivElement>(null);
 
     const handleMouseDown = (e: React.MouseEvent) => {
+        if (autoFitLabels) {
+            return; // Disable resize when auto-fit is active
+        }
         e.preventDefault();
         setIsResizing(true);
     };
+
+    const handleAutoFitLabelsChange = useCallback((checked: boolean) => {
+        setAutoFitLabels(checked);
+        onAutoFitLabelsChange?.(checked);
+    }, [ onAutoFitLabelsChange ]);
+
+    const handleHeightChange = useCallback((newHeight: number) => {
+        setHeight(newHeight);
+    }, []);
 
     useEffect(() => {
         if (!isResizing) {
@@ -69,7 +88,16 @@ export function DiagramSection({ resolvedConnections }: {
             style={isExpanded ? { width: 'calc(100vw - 2rem)', marginLeft: 'calc(-50vw + 50% + 1rem)' } : undefined}
         >
             <section className='bg-white rounded-lg shadow p-6 relative'>
-                <div className='flex justify-end mb-2'>
+                <div className='flex justify-end mb-2 gap-2 items-center'>
+                    <label className='flex items-center gap-2 text-sm text-gray-600 cursor-pointer'>
+                        <input
+                            type='checkbox'
+                            checked={autoFitLabels}
+                            onChange={(e) => handleAutoFitLabelsChange(e.target.checked)}
+                            className='rounded border-gray-300 text-blue-600 focus:ring-blue-500'
+                        />
+                        Auto-fit labels
+                    </label>
                     <button
                         type='button'
                         onClick={() => setIsExpanded(!isExpanded)}
@@ -129,16 +157,23 @@ export function DiagramSection({ resolvedConnections }: {
                                 highlightOpacity: 0.75
                             }
                         }}
+                        autoFitLabels={autoFitLabels}
+                        onHeightChange={handleHeightChange}
                         className='w-full h-full'
                     />
                 </div>
                 {/* Resize handle */}
                 <div
                     onMouseDown={handleMouseDown}
-                    className={`absolute left-0 right-0 h-2 cursor-ns-resize flex items-center justify-center ${
-                        isResizing ? 'bg-blue-100' : 'hover:bg-gray-100'
+                    className={`absolute left-0 right-0 h-2 flex items-center justify-center ${
+                        autoFitLabels
+                            ? 'cursor-not-allowed opacity-50'
+                            : isResizing
+                            ? 'bg-blue-100 cursor-ns-resize'
+                            : 'hover:bg-gray-100 cursor-ns-resize'
                     }`}
                     style={{ bottom: 0 }}
+                    title={autoFitLabels ? 'Resize disabled when auto-fit is active' : 'Drag to resize'}
                 >
                     <div className='w-12 h-1 bg-gray-300 rounded-full' />
                 </div>

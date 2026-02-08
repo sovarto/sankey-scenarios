@@ -938,11 +938,23 @@ function calculateLabelPositions(nodes: InternalNode[], totalStages: number, cfg
             anchor = 'middle';
         }
 
-        // Build label pieces
+        // Build label pieces (full version with value)
         const pieces: LabelPiece[] = [];
+        // Build compact pieces (name only - no value)
+        const compactPieces: LabelPiece[] = [];
         const displayName = node.displayName || node.name;
         const nameParts = displayName.split('\\n');
         const fontWeight = cfg.labels.fontWeight;
+
+        // Always build compact pieces (name only)
+        nameParts.forEach((part, i) => {
+            compactPieces.push({
+                text: part || '\u00A0',
+                size: fontSize,
+                weight: fontWeight,
+                newLine: i > 0
+            });
+        });
 
         if (cfg.labels.showValues) {
             const valueText = formatValue(node.value, cfg.valueFormat);
@@ -952,7 +964,8 @@ function calculateLabelPositions(nodes: InternalNode[], totalStages: number, cfg
                     text: cfg.labels.valuePosition === 'before' ? valueText + ' ' : valueText,
                     size: fontSize,
                     weight: fontWeight,
-                    newLine: cfg.labels.valuePosition === 'above'
+                    newLine: cfg.labels.valuePosition === 'above',
+                    isValue: true
                 });
             }
 
@@ -966,13 +979,21 @@ function calculateLabelPositions(nodes: InternalNode[], totalStages: number, cfg
             });
 
             if (cfg.labels.valuePosition === 'after') {
-                pieces[pieces.length - 1].text += ': ' + valueText;
+                // For 'after' position, the value is appended to the last name piece as new line
+                pieces.push({
+                    text: valueText,
+                    size: fontSize,
+                    weight: fontWeight,
+                    newLine: true,
+                    isValue: true
+                });
             } else if (cfg.labels.valuePosition === 'below') {
                 pieces.push({
                     text: valueText,
                     size: fontSize,
                     weight: fontWeight,
-                    newLine: true
+                    newLine: true,
+                    isValue: true
                 });
             }
         } else {
@@ -991,35 +1012,6 @@ function calculateLabelPositions(nodes: InternalNode[], totalStages: number, cfg
             continue;
         }
 
-        // Estimate label dimensions
-        // Average character width varies by font: use 0.55 for sans-serif as base
-        // Numbers and punctuation are narrower, uppercase letters wider
-        // We measure actual max line width for more accuracy
-        const lineCount = pieces.filter(p => p.newLine).length + 1;
-
-        // Calculate width per line and find the maximum
-        const lineWidths: number[] = [];
-        let currentLineText = '';
-        for (const piece of pieces) {
-            if (piece.newLine && currentLineText) {
-                lineWidths.push(currentLineText.length);
-                currentLineText = piece.text;
-            } else {
-                currentLineText += piece.text;
-            }
-        }
-        if (currentLineText) {
-            lineWidths.push(currentLineText.length);
-        }
-
-        const maxTextLength = Math.max(...lineWidths, 0);
-        // Use 0.7 em per character - generous estimate to ensure highlight covers text
-        // Wide characters like 'W', 'M' can be up to 0.9em, narrow ones like 'i', 'l' around 0.3em
-        const estimatedWidth = maxTextLength * fontSize * 0.7;
-        // Line height for actual text rendering - use larger multiplier to account for line spacing
-        const lineHeight = fontSize * 1.4;
-        const estimatedHeight = lineCount * lineHeight;
-
         // Calculate label position
         let labelX: number;
         if (anchor === 'end') {
@@ -1032,38 +1024,15 @@ function calculateLabelPositions(nodes: InternalNode[], totalStages: number, cfg
 
         const labelY = node.y + node.dy / 2;
 
-        // The text will be positioned at labelY with dominant-baseline="central"
-        // For multi-line text, we need to account for where all lines actually render
-        const textBlockTop = labelY - (estimatedHeight / 2);
-        const textBlockBottom = labelY + (estimatedHeight / 2);
-
+        // Label dimensions and highlight are now calculated at render time using getBBox()
         node.label = {
             anchor,
             x: labelX,
             y: labelY,
-            dy: 0, // Start at center, first tspan will be offset
+            dy: 0,
             pieces,
-            width: estimatedWidth,
-            height: estimatedHeight,
-            line1Height: lineHeight
+            compactPieces
         };
-
-        // Add highlight background if enabled
-        if (cfg.labels.highlightOpacity > 0) {
-            const highlightX = anchor === 'end'
-                ? labelX - estimatedWidth - pad.outer
-                : anchor === 'start'
-                ? labelX - pad.inner
-                : labelX - estimatedWidth / 2 - pad.inner;
-
-            node.label.highlight = {
-                x: highlightX,
-                y: textBlockTop - pad.top,
-                width: estimatedWidth + pad.inner + pad.outer,
-                height: estimatedHeight + pad.top + pad.bot,
-                rx: fontSize / 4
-            };
-        }
     }
 }
 

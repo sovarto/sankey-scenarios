@@ -127,6 +127,13 @@
       "when": 1770538581997,
       "tag": "0017_many_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1770554739561,
+      "tag": "0018_large_micromax",
+      "breakpoints": true
     }
   ]
 }

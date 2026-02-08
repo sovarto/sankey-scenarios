@@ -5,12 +5,329 @@
  * Matches SankeyMATIC's visual style and behavior.
  */
 
-import { useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react';
+import { useRef, useState, useMemo, useCallback, useLayoutEffect, useEffect } from 'react';
 import { computeSankeyLayout } from './layout';
 import { generateFlowPaths, generateNodeRects, generateLabels, getLabelHighlightColor, formatTooltipValue } from './renderer';
-import type { FlowPath, NodeRect } from './renderer';
+import type { FlowPath, NodeRect, LabelElement } from './renderer';
 
 import type { SankeyFlow, SankeyConfig } from './types';
+
+/** Bounding box with padding for collision detection */
+interface LabelBBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/** Check if two bounding boxes overlap */
+function boxesOverlap(a: LabelBBox, b: LabelBBox, padding = 2): boolean {
+    return !(a.x + a.width + padding < b.x
+        || b.x + b.width + padding < a.x
+        || a.y + a.height + padding < b.y
+        || b.y + b.height + padding < a.y);
+}
+
+/** Props for the SankeyLabel component */
+interface SankeyLabelProps {
+    label: LabelElement;
+    isHovered: boolean;
+    isHidden: boolean;
+    useCompact: boolean;
+    fontFamily: string;
+    labelColor: string;
+    onMouseEnter: () => void;
+    onMouseLeave: () => void;
+    onClick: () => void;
+    onMeasure?: (fullBBox: LabelBBox, compactBBox: LabelBBox) => void;
+}
+
+/**
+ * Individual label component that measures its own text and renders highlight accordingly
+ */
+function SankeyLabel(
+    { label, isHovered, isHidden, useCompact, fontFamily, labelColor, onMouseEnter, onMouseLeave, onClick, onMeasure }:
+        SankeyLabelProps,
+) {
+    const textRef = useRef<SVGTextElement>(null);
+    const measureFullRef = useRef<SVGTextElement>(null);
+    const measureCompactRef = useRef<SVGTextElement>(null);
+    const [ bbox, setBbox ] = useState<LabelBBox | null>(null);
+
+    // Show full on hover, otherwise respect useCompact
+    const showFull = isHovered || !useCompact;
+    const displayPieces = showFull ? label.pieces : label.compactPieces;
+    const highlightColor = getLabelHighlightColor(label.nodeColor, label.opacity);
+    const fontSize = displayPieces[0]?.size ?? 12;
+    const padding = { x: fontSize * 0.4, y: fontSize * 0.3 };
+
+    // Measure both full and compact versions for collision detection
+    useLayoutEffect(() => {
+        if (onMeasure && measureFullRef.current && measureCompactRef.current) {
+            const fullBox = measureFullRef.current.getBBox();
+            const compactBox = measureCompactRef.current.getBBox();
+            const fullPadding = { x: (label.pieces[0]?.size ?? 12) * 0.4, y: (label.pieces[0]?.size ?? 12) * 0.3 };
+            const compactPadding = {
+                x: (label.compactPieces[0]?.size ?? 12) * 0.4,
+                y: (label.compactPieces[0]?.size ?? 12) * 0.3
+            };
+
+            onMeasure(
+                {
+                    x: fullBox.x - fullPadding.x,
+                    y: fullBox.y - fullPadding.y,
+                    width: fullBox.width + fullPadding.x * 2,
+                    height: fullBox.height + fullPadding.y * 2
+                },
+                {
+                    x: compactBox.x - compactPadding.x,
+                    y: compactBox.y - compactPadding.y,
+                    width: compactBox.width + compactPadding.x * 2,
+                    height: compactBox.height + compactPadding.y * 2
+                }
+            );
+        }
+    }, [ label.x, label.y, onMeasure ]);
+
+    // Measure visible text for highlight
+    useLayoutEffect(() => {
+        if (textRef.current) {
+            const box = textRef.current.getBBox();
+            setBbox({ x: box.x, y: box.y, width: box.width, height: box.height });
+        }
+    }, [ displayPieces, isHovered, useCompact ]);
+
+    // Helper to render text content
+    const renderTextContent = (pieces: typeof displayPieces, ref?: React.RefObject<SVGTextElement | null>) => {
+        const lineHeight = (pieces[0]?.size ?? 12) * 1.4;
+        const totalLines = pieces.filter(p => p.newLine).length + 1;
+        const totalHeight = totalLines * lineHeight;
+
+        return (
+            <text
+                ref={ref}
+                x={label.x}
+                y={label.y}
+                textAnchor={label.anchor}
+                dominantBaseline='central'
+                style={{
+                    fontFamily,
+                    userSelect: 'none'
+                }}
+            >
+                {pieces.map((piece, pieceIdx) => {
+                    let dyValue: number;
+                    if (pieceIdx === 0) {
+                        dyValue = -totalHeight / 2 + lineHeight / 2;
+                    } else if (piece.newLine) {
+                        dyValue = lineHeight;
+                    } else {
+                        dyValue = 0;
+                    }
+
+                    return (
+                        <tspan
+                            key={pieceIdx}
+                            x={piece.newLine || pieceIdx === 0 ? label.x : undefined}
+                            dy={dyValue}
+                            fontSize={piece.size}
+                            fontWeight={piece.weight}
+                            fill={labelColor}
+                        >
+                            {piece.text}
+                        </tspan>
+                    );
+                })}
+            </text>
+        );
+    };
+
+    return (
+        <g
+            style={{
+                opacity: isHidden ? 0 : 1,
+                transition: 'opacity 0.2s ease',
+                cursor: 'pointer'
+            }}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            onClick={onClick}
+        >
+            {/* Hidden measurement texts */}
+            {onMeasure && (
+                <g style={{ visibility: 'hidden', pointerEvents: 'none' }}>
+                    {renderTextContent(label.pieces, measureFullRef)}
+                    {renderTextContent(label.compactPieces, measureCompactRef)}
+                </g>
+            )}
+
+            {/* Highlight background - rendered based on measured text bbox */}
+            {bbox && label.opacity > 0 && (
+                <rect
+                    x={bbox.x - padding.x}
+                    y={bbox.y - padding.y}
+                    width={bbox.width + padding.x * 2}
+                    height={bbox.height + padding.y * 2}
+                    rx={fontSize / 4}
+                    fill={isHovered
+                        ? getLabelHighlightColor(label.nodeColor, Math.min(label.opacity + 0.3, 1))
+                        : highlightColor}
+                />
+            )}
+            {/* Visible label text */}
+            {renderTextContent(displayPieces, textRef)}
+        </g>
+    );
+}
+
+/** Props for SankeyLabels wrapper component */
+interface SankeyLabelsProps {
+    labels: LabelElement[];
+    hiddenNodes: Set<string>;
+    hoveredLabel: number | null;
+    fontFamily: string;
+    labelColor: string;
+    onHoverLabel: (idx: number | null) => void;
+    onClickLabel: (nodeName: string) => void;
+    /** Callback when collisions are detected, reports number of compact labels and suggested height increase */
+    onCollisionInfo?: (info: { compactCount: number; suggestedHeightIncrease: number }) => void;
+}
+
+/**
+ * Wrapper component that handles label collision detection
+ */
+function SankeyLabels(
+    { labels, hiddenNodes, hoveredLabel, fontFamily, labelColor, onHoverLabel, onClickLabel, onCollisionInfo }:
+        SankeyLabelsProps,
+) {
+    const [ labelBBoxes, setLabelBBoxes ] = useState<Map<number, { full: LabelBBox; compact: LabelBBox }>>(new Map());
+    const [ compactLabels, setCompactLabels ] = useState<Set<number>>(new Set());
+    const [ measurementComplete, setMeasurementComplete ] = useState(false);
+
+    // Create a stable key from label positions to detect layout changes
+    const labelsKey = useMemo(() => labels.map(l => `${l.x.toFixed(1)},${l.y.toFixed(1)}`).join('|'), [ labels ]);
+
+    // Reset measurement state when labels change (positions change due to layout)
+    useEffect(() => {
+        setLabelBBoxes(new Map());
+        setCompactLabels(new Set());
+        setMeasurementComplete(false);
+    }, [ labelsKey ]);
+
+    // Handle measurement callback from each label
+    const handleMeasure = useCallback((idx: number, fullBBox: LabelBBox, compactBBox: LabelBBox) => {
+        setLabelBBoxes(prev => {
+            const next = new Map(prev);
+            next.set(idx, { full: fullBBox, compact: compactBBox });
+            return next;
+        });
+    }, []);
+
+    // Calculate collisions once all labels are measured
+    useLayoutEffect(() => {
+        if (labelBBoxes.size !== labels.length || labels.length === 0) {
+            return;
+        }
+
+        // Greedy algorithm: process labels and mark colliding ones as compact
+        const needsCompact = new Set<number>();
+        const sortedIndices = [ ...labelBBoxes.keys() ].sort((a, b) => {
+            // Prioritize keeping labels with higher values as full labels
+            const labelA = labels[a];
+            const labelB = labels[b];
+            // Sort by value descending (higher value = higher priority to stay full)
+            return labelB.value - labelA.value;
+        });
+
+        // Track which boxes are "placed" as full
+        const placedFullBoxes: { idx: number; box: LabelBBox }[] = [];
+
+        for (const idx of sortedIndices) {
+            const bboxes = labelBBoxes.get(idx)!;
+            const fullBox = bboxes.full;
+
+            // Check if full box collides with any already placed full box
+            let collides = false;
+            for (const placed of placedFullBoxes) {
+                if (boxesOverlap(fullBox, placed.box)) {
+                    collides = true;
+                    break;
+                }
+            }
+
+            if (collides) {
+                // Try compact box
+                const compactBox = bboxes.compact;
+                let compactCollides = false;
+                for (const placed of placedFullBoxes) {
+                    if (boxesOverlap(compactBox, placed.box)) {
+                        compactCollides = true;
+                        break;
+                    }
+                }
+
+                if (compactCollides) {
+                    // Even compact collides, but we still mark as compact (it's smaller)
+                    needsCompact.add(idx);
+                    placedFullBoxes.push({ idx, box: compactBox });
+                } else {
+                    needsCompact.add(idx);
+                    placedFullBoxes.push({ idx, box: compactBox });
+                }
+            } else {
+                // No collision, use full
+                placedFullBoxes.push({ idx, box: fullBox });
+            }
+        }
+
+        setCompactLabels(needsCompact);
+        setMeasurementComplete(true);
+
+        // Report collision info - use small fixed increment to avoid overshooting
+        // The auto-fit will iterate until no collisions remain
+        if (onCollisionInfo) {
+            onCollisionInfo({
+                compactCount: needsCompact.size,
+                suggestedHeightIncrease: needsCompact.size > 0 ? 30 : 0
+            });
+        }
+    }, [ labelBBoxes, labels, onCollisionInfo ]);
+
+    // Sort labels so hovered one renders on top
+    const sortedLabels = useMemo(() => {
+        return [ ...labels ].map((label, idx) => ({ label, idx })).sort((a, b) => {
+            if (a.idx === hoveredLabel) {
+                return 1;
+            }
+            if (b.idx === hoveredLabel) {
+                return -1;
+            }
+            return 0;
+        });
+    }, [ labels, hoveredLabel ]);
+
+    return (
+        <g className='labels'>
+            {sortedLabels.map(({ label, idx }) => (
+                <SankeyLabel
+                    key={`label-${idx}`}
+                    label={label}
+                    isHovered={hoveredLabel === idx}
+                    isHidden={hiddenNodes.has(label.nodeName)}
+                    useCompact={measurementComplete ? compactLabels.has(idx) : false}
+                    fontFamily={fontFamily}
+                    labelColor={labelColor}
+                    onMouseEnter={() => onHoverLabel(idx)}
+                    onMouseLeave={() => onHoverLabel(null)}
+                    onClick={() => onClickLabel(label.nodeName)}
+                    onMeasure={!measurementComplete
+                        ? (full, compact) => handleMeasure(idx, full, compact)
+                        : undefined}
+                />
+            ))}
+        </g>
+    );
+}
 
 export interface SankeyDiagramProps {
     /** Array of flow data describing connections between nodes */
@@ -25,6 +342,10 @@ export interface SankeyDiagramProps {
     className?: string;
     /** Inline styles for the container */
     style?: React.CSSProperties;
+    /** When true, automatically adjusts height to fit all labels without collision */
+    autoFitLabels?: boolean;
+    /** Callback when auto-fit calculates a new required height */
+    onHeightChange?: (height: number) => void;
 }
 
 interface TooltipState {
@@ -65,6 +386,8 @@ export function SankeyDiagram({
     onNodeClick,
     className,
     style,
+    autoFitLabels,
+    onHeightChange,
 }: SankeyDiagramProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
@@ -74,6 +397,17 @@ export function SankeyDiagram({
     const [ containerSize, setContainerSize ] = useState<{ width: number; height: number } | null>(null);
     const [ collapsedNodes, setCollapsedNodes ] = useState<Set<string>>(new Set());
     const [ hoveredLabel, setHoveredLabel ] = useState<number | null>(null);
+
+    // Handle collision info from labels - used for auto-fit
+    const handleCollisionInfo = useCallback((info: { compactCount: number; suggestedHeightIncrease: number }) => {
+        if (autoFitLabels && onHeightChange && info.compactCount > 0 && info.suggestedHeightIncrease > 0) {
+            const currentHeight = config.height || containerSize?.height || 400;
+            const newHeight = Math.min(2000, currentHeight + info.suggestedHeightIncrease);
+            if (newHeight > currentHeight) {
+                onHeightChange(newHeight);
+            }
+        }
+    }, [ autoFitLabels, onHeightChange, config.height, containerSize?.height ]);
 
     // Measure container size when no explicit dimensions provided
     useLayoutEffect(() => {
@@ -404,97 +738,16 @@ export function SankeyDiagram({
                     </g>
 
                     {/* Labels */}
-                    <g className='labels'>
-                        {[ ...labels ].map((label, idx) => ({ label, idx })).sort((a, b) => {
-                            // Hovered label should render last (on top)
-                            if (a.idx === hoveredLabel) {
-                                return 1;
-                            }
-                            if (b.idx === hoveredLabel) {
-                                return -1;
-                            }
-                            return 0;
-                        }).map(({ label, idx }) => {
-                            const isHidden = hiddenNodes.has(label.nodeName);
-                            const isHovered = hoveredLabel === idx;
-                            const highlightColor = getLabelHighlightColor(label.nodeColor, label.opacity);
-
-                            return (
-                                <g
-                                    key={`label-${idx}`}
-                                    style={{
-                                        opacity: isHidden ? 0 : 1,
-                                        transition: 'opacity 0.2s ease',
-                                        cursor: 'pointer'
-                                    }}
-                                    onMouseEnter={() => setHoveredLabel(idx)}
-                                    onMouseLeave={() => setHoveredLabel(null)}
-                                    onClick={() => handleLabelClick(label.nodeName)}
-                                >
-                                    {/* Highlight background */}
-                                    {label.highlight && label.opacity > 0 && (
-                                        <rect
-                                            x={label.highlight.x}
-                                            y={label.highlight.y}
-                                            width={label.highlight.width}
-                                            height={label.highlight.height}
-                                            rx={label.highlight.rx}
-                                            fill={isHovered
-                                                ? getLabelHighlightColor(
-                                                    label.nodeColor,
-                                                    Math.min(label.opacity + 0.3, 1)
-                                                )
-                                                : highlightColor}
-                                        />
-                                    )}
-                                    {/* Label text */}
-                                    <text
-                                        x={label.x}
-                                        y={label.y}
-                                        textAnchor={label.anchor}
-                                        dominantBaseline='central'
-                                        style={{
-                                            fontFamily: diagramData.config.labels.fontFamily,
-                                            userSelect: 'none'
-                                        }}
-                                    >
-                                        {label.pieces.map((piece, pieceIdx) => {
-                                            // Calculate dy: first line offsets up to center the block,
-                                            // subsequent lines move down by lineHeight
-                                            const lineHeight = piece.size * 1.4;
-                                            const totalLines = label.pieces.filter(p => p.newLine).length + 1;
-                                            const totalHeight = totalLines * lineHeight;
-
-                                            let dyValue: number;
-                                            if (pieceIdx === 0) {
-                                                // First line: offset up by half the total height, then down by half a line
-                                                dyValue = -totalHeight / 2 + lineHeight / 2;
-                                            } else if (piece.newLine) {
-                                                // New line: move down by line height
-                                                dyValue = lineHeight;
-                                            } else {
-                                                // Same line continuation
-                                                dyValue = 0;
-                                            }
-
-                                            return (
-                                                <tspan
-                                                    key={pieceIdx}
-                                                    x={piece.newLine || pieceIdx === 0 ? label.x : undefined}
-                                                    dy={dyValue}
-                                                    fontSize={piece.size}
-                                                    fontWeight={piece.weight}
-                                                    fill={diagramData.config.labels.color}
-                                                >
-                                                    {piece.text}
-                                                </tspan>
-                                            );
-                                        })}
-                                    </text>
-                                </g>
-                            );
-                        })}
-                    </g>
+                    <SankeyLabels
+                        labels={labels}
+                        hiddenNodes={hiddenNodes}
+                        hoveredLabel={hoveredLabel}
+                        fontFamily={diagramData.config.labels.fontFamily}
+                        labelColor={diagramData.config.labels.color}
+                        onHoverLabel={setHoveredLabel}
+                        onClickLabel={handleLabelClick}
+                        onCollisionInfo={autoFitLabels ? handleCollisionInfo : undefined}
+                    />
                 </g>
             </svg>
 

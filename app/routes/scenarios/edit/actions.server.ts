@@ -71,6 +71,20 @@ export async function handleUpdateDescription(ctx: ActionContext): Promise<Actio
     return { success: true };
 }
 
+export async function handleUpdateAutoFitLabels(ctx: ActionContext): Promise<ActionResult> {
+    const { db, projectId, scenarioId, formData } = ctx;
+    const autoFitLabels = formData.get('autoFitLabels') === 'true';
+
+    await db.update(schema.scenarios).set({
+        autoFitLabels,
+        updatedAt: new Date()
+    }).where(eq(schema.scenarios.id, scenarioId));
+
+    await db.update(schema.projects).set({ updatedAt: new Date() }).where(eq(schema.projects.id, projectId));
+
+    return { success: true };
+}
+
 export async function handleDeleteScenario(ctx: ActionContext): Promise<ActionResult> {
     const { db, projectId, scenarioId } = ctx;
 
