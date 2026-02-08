@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber } from './numberUtils';
@@ -323,9 +323,21 @@ export function AddConnectionForm({
 
     const isValid = source && validRowCount > 0;
 
+    // Show error as popup
+    const fetcherError = fetcher.data && 'error' in fetcher.data ? fetcher.data.error : null;
+    const lastShownError = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (fetcherError && fetcherError !== lastShownError.current) {
+            lastShownError.current = fetcherError;
+            alert(fetcherError);
+        }
+    }, [ fetcherError ]);
+
     return (
         <div className='border-t pt-4'>
             <h3 className='text-sm font-medium text-gray-700 mb-3'>Add Connection</h3>
+
             <form onSubmit={handleSubmit} className='space-y-3'>
                 {/* Source */}
                 <div>

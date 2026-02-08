@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useFetcher } from 'react-router';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber, formatLocaleNumber } from './numberUtils';
@@ -609,6 +609,17 @@ export function EditableConnectionRow({
             </span>
         );
     };
+
+    // Show error as popup
+    const fetcherError = fetcher.data && 'error' in fetcher.data ? (fetcher.data as { error: string }).error : null;
+    const lastShownError = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (fetcherError && fetcherError !== lastShownError.current) {
+            lastShownError.current = fetcherError;
+            alert(fetcherError);
+        }
+    }, [ fetcherError ]);
 
     return (
         <div

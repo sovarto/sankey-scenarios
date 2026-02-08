@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Form, Link, useFetcher, useLoaderData, useActionData, useRevalidator } from 'react-router';
 import type { Route } from './+types/edit';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
@@ -256,6 +256,21 @@ export default function ViewScenario({}: Route.ComponentProps) {
     if (actionData && 'redirect' in actionData && actionData.redirect) {
         window.location.href = actionData.redirect;
     }
+
+    // Get errors from action or fetcher - show as popup
+    const actionError = actionData && 'error' in actionData ? actionData.error : null;
+    const fetcherError = fetcher.data && typeof fetcher.data === 'object' && 'error' in fetcher.data
+        ? (fetcher.data as { error: string }).error
+        : null;
+    const displayError = actionError || fetcherError;
+    const lastShownError = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (displayError && displayError !== lastShownError.current) {
+            lastShownError.current = displayError;
+            alert(displayError);
+        }
+    }, [ displayError ]);
 
     return (
         <div className='min-h-screen bg-gray-50'>
