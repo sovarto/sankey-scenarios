@@ -299,11 +299,12 @@ export function EditableConnectionRow({
         if (!canEditValue) {
             return;
         }
-        // If there's an expression, show it; otherwise show the value
+        // If there's an expression, show it; otherwise show the value (formatted for locale)
         if (displayExpression) {
             setEditValue(valueType === 'percent' ? `${displayExpression}%` : displayExpression);
         } else {
-            setEditValue(valueType === 'percent' ? `${displayValue}%` : displayValue.toString());
+            const formattedValue = formatLocaleNumber(displayValue, locale ?? undefined);
+            setEditValue(valueType === 'percent' ? `${formattedValue}%` : formattedValue);
         }
         setEditDescription(displayDescription ?? '');
         setShowDescriptionInput(!!displayDescription);
