@@ -8,3 +8,6 @@
 /build/
 .vscode/settings.json
 .eslintcache
+playwright-report/
+test-results/
+e2e/.auth/

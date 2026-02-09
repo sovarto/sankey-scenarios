@@ -4,7 +4,7 @@ import unusedImports from 'eslint-plugin-unused-imports';
 /** @type {import("eslint").Linter.Config} */
 export default [
     {
-        ignores: []
+        ignores: [ 'e2e/**', 'dist/**', 'node_modules/**', 'build/**', 'coverage/**', 'playwright.config.ts' ]
     },
     ...defaultConfig,
     {

@@ -6,14 +6,21 @@
     "build": "react-router build",
     "db:generate": "dotenv -- drizzle-kit generate",
     "db:migrate": "dotenv -- drizzle-kit migrate",
+    "db:migrate:test": "dotenv -e .env.test -- drizzle-kit migrate",
     "dev": "dotenv -- node server.js",
+    "dev:test": "dotenv -e .env.test -- node server.js",
     "start": "node server.js",
     "typecheck": "react-router typegen && tsc -b",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
-      "eslint --fix --cache --cache-location .eslintcache --config eslint.config.js",
+      "eslint --fix --cache --no-warn-ignored --cache-location .eslintcache --config eslint.config.js",
       "dprint fmt --config dprint.json --allow-no-files"
     ],
     "*.{json,md,markdown,yml,yaml,toml}": [
@@ -37,6 +44,7 @@
   },
   "devDependencies": {
     "@epic-web/config": "^1.16.4",
+    "@playwright/test": "^1.58.2",
     "@react-router/dev": "7.12.0",
     "@tailwindcss/vite": "^4.1.4",
     "@types/compression": "^1.7.5",
