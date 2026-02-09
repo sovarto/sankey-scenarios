@@ -304,6 +304,8 @@ export async function handleUpdateConnectionValue(ctx: ActionContext): Promise<A
     const connectionId = formData.get('connectionId');
     const value = formData.get('value');
     const valueType = formData.get('valueType');
+    const valueExpression = formData.get('valueExpression');
+    const valueDescription = formData.get('valueDescription');
 
     if (typeof connectionId !== 'string' || typeof value !== 'string') {
         return { error: 'Invalid parameters' };
@@ -314,9 +316,25 @@ export async function handleUpdateConnectionValue(ctx: ActionContext): Promise<A
         return { error: 'Value must be a positive number' };
     }
 
-    const updateData: { value: number; valueType?: string } = { value: numValue };
+    const updateData: {
+        value: number;
+        valueType?: string;
+        valueExpression?: string | null;
+        valueDescription?: string | null;
+    } = { value: numValue };
+
     if (valueType === 'percent' || valueType === 'absolute') {
         updateData.valueType = valueType;
+    }
+
+    // Handle expression - empty string means clear it
+    if (typeof valueExpression === 'string') {
+        updateData.valueExpression = valueExpression.trim() || null;
+    }
+
+    // Handle description - empty string means clear it
+    if (typeof valueDescription === 'string') {
+        updateData.valueDescription = valueDescription.trim() || null;
     }
 
     await db.update(schema.connections).set(updateData).where(eq(schema.connections.id, parseInt(connectionId, 10)));
@@ -799,11 +817,20 @@ export async function handleUpdateGroupRefValue(ctx: ActionContext): Promise<Act
     const referenceId = formData.get('referenceId');
     const value = formData.get('value');
     const valueType = formData.get('valueType');
+    const valueExpression = formData.get('valueExpression');
+    const valueDescription = formData.get('valueDescription');
 
     if (typeof referenceId === 'string' && typeof value === 'string') {
         const numValue = parseFloat(value);
         if (!isNaN(numValue) && numValue >= 0) {
-            const updateData: { value: number; valueType?: string; autoValue: number; placeholderType: null } = {
+            const updateData: {
+                value: number;
+                valueType?: string;
+                valueExpression?: string | null;
+                valueDescription?: string | null;
+                autoValue: number;
+                placeholderType: null;
+            } = {
                 value: numValue,
                 // Clear auto and placeholder when setting explicit value
                 autoValue: 0,
@@ -812,6 +839,17 @@ export async function handleUpdateGroupRefValue(ctx: ActionContext): Promise<Act
             if (valueType === 'percent' || valueType === 'absolute') {
                 updateData.valueType = valueType;
             }
+
+            // Handle expression - empty string means clear it
+            if (typeof valueExpression === 'string') {
+                updateData.valueExpression = valueExpression.trim() || null;
+            }
+
+            // Handle description - empty string means clear it
+            if (typeof valueDescription === 'string') {
+                updateData.valueDescription = valueDescription.trim() || null;
+            }
+
             await db.update(schema.scenarioGroups).set(updateData).where(
                 eq(schema.scenarioGroups.id, parseInt(referenceId, 10))
             );

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useFetcher } from 'react-router';
+import { evaluateExpression, isExpression } from './expressionEvaluator';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber } from './numberUtils';
 import type { ComboboxOption, GroupWithConnections } from './types';
@@ -12,10 +13,12 @@ const SPECIAL_VALUES = {
 };
 
 /** Parse value field to determine connection type and numeric value */
-function parseValueField(
-    value: string,
-    locale?: string,
-): { type: 'regular' | 'auto' | 'missing' | 'remaining'; numericValue: number; isPercent: boolean } {
+function parseValueField(value: string, locale?: string): {
+    type: 'regular' | 'auto' | 'missing' | 'remaining';
+    numericValue: number;
+    isPercent: boolean;
+    expression?: string;
+} {
     const trimmed = value.trim().toLowerCase();
 
     if ((SPECIAL_VALUES.auto as readonly string[]).includes(trimmed)) {
@@ -28,7 +31,15 @@ function parseValueField(
         return { type: 'remaining', numericValue: 0, isPercent: false };
     }
 
-    // Check for percentage suffix (%, p, or percent)
+    // Try to evaluate as an expression first
+    const result = evaluateExpression(value, locale);
+    if (result.valid) {
+        const exprWithoutPercent = value.replace(/(%|p|percent)$/i, '').trim();
+        const expr = isExpression(exprWithoutPercent) ? exprWithoutPercent : undefined;
+        return { type: 'regular', numericValue: result.value, isPercent: result.isPercent, expression: expr };
+    }
+
+    // Fallback to checking for percentage suffix manually
     const percentMatch = trimmed.match(/^(.+?)(%|p|percent)$/);
     if (percentMatch) {
         const numPart = percentMatch[1].trim();

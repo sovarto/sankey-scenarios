@@ -15,6 +15,10 @@ export interface ConnectionRowData {
     sourceLocalNodeId?: number;
     targetLocalNodeId?: number;
     value: number;
+    // Expression used to calculate the value (e.g., "100 + 50", "1000 * 0.5")
+    valueExpression?: string | null;
+    // Optional description/documentation for the value
+    valueDescription?: string | null;
     // Value type: 'absolute' (default) = fixed number, 'percent' = percentage of total incoming to source node
     valueType?: ValueType;
     displayOrder: number;

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useFetcher } from 'react-router';
+import { evaluateExpression, isExpression } from './expressionEvaluator';
 import { NodeCombobox } from './NodeCombobox';
 import { parseLocaleNumber, formatLocaleNumber } from './numberUtils';
 import { ReorderGroupNodesModal } from './ReorderGroupNodesModal';
@@ -54,9 +55,13 @@ export function EditableConnectionRow({
     const [ editSource, setEditSource ] = useState<ComboboxOption | null>(null);
     const [ editTarget, setEditTarget ] = useState<ComboboxOption | null>(null);
     const [ editValue, setEditValue ] = useState('');
+    const [ editDescription, setEditDescription ] = useState('');
+    const [ showDescriptionInput, setShowDescriptionInput ] = useState(false);
     const [ displaySource, setDisplaySource ] = useState(row.source);
     const [ displayTarget, setDisplayTarget ] = useState(row.target);
     const [ displayValue, setDisplayValue ] = useState(row.value);
+    const [ displayExpression, setDisplayExpression ] = useState(row.valueExpression ?? null);
+    const [ displayDescription, setDisplayDescription ] = useState(row.valueDescription ?? null);
     const [ valueType, setValueType ] = useState<'absolute' | 'percent'>(row.valueType ?? 'absolute');
     const [ showGroupNode, setShowGroupNode ] = useState(row.showGroupNode ?? false);
     const [ subNode, setSubNode ] = useState(row.subNode ?? null);
@@ -120,6 +125,14 @@ export function EditableConnectionRow({
     useEffect(() => {
         setValueType(row.valueType ?? 'absolute');
     }, [ row.valueType ]);
+
+    useEffect(() => {
+        setDisplayExpression(row.valueExpression ?? null);
+    }, [ row.valueExpression ]);
+
+    useEffect(() => {
+        setDisplayDescription(row.valueDescription ?? null);
+    }, [ row.valueDescription ]);
 
     // Check if another connection from this source already has auto/remaining
     // (excluding the current connection)
@@ -286,8 +299,14 @@ export function EditableConnectionRow({
         if (!canEditValue) {
             return;
         }
-        // Include percentage suffix in edit value if this is a percent value
-        setEditValue(valueType === 'percent' ? `${displayValue}%` : displayValue.toString());
+        // If there's an expression, show it; otherwise show the value
+        if (displayExpression) {
+            setEditValue(valueType === 'percent' ? `${displayExpression}%` : displayExpression);
+        } else {
+            setEditValue(valueType === 'percent' ? `${displayValue}%` : displayValue.toString());
+        }
+        setEditDescription(displayDescription ?? '');
+        setShowDescriptionInput(!!displayDescription);
         setEditingField('value');
     };
 
@@ -342,14 +361,41 @@ export function EditableConnectionRow({
 
     // Save value change
     const handleValueSave = () => {
-        const { numericValue, isPercent } = parseEditValue(editValue, locale ?? undefined);
+        // First try to evaluate as an expression
+        const result = evaluateExpression(editValue, locale ?? undefined);
+
+        let numericValue: number;
+        let isPercent: boolean;
+        let expressionToSave: string | null = null;
+
+        if (result.valid) {
+            numericValue = result.value;
+            isPercent = result.isPercent;
+            // Only save expression if it's an actual expression (not just a simple number)
+            if (isExpression(editValue.replace(/(%|p|percent)$/i, '').trim())) {
+                expressionToSave = editValue.replace(/(%|p|percent)$/i, '').trim();
+            }
+        } else {
+            // Fallback to the old parsing method
+            const parsed = parseEditValue(editValue, locale ?? undefined);
+            numericValue = parsed.numericValue;
+            isPercent = parsed.isPercent;
+        }
+
         const newValueType: ValueType = isPercent ? 'percent' : 'absolute';
+        const descriptionToSave = editDescription.trim() || null;
 
         if (
-            !isNaN(numericValue) && numericValue >= 0 && (numericValue !== displayValue || newValueType !== valueType)
+            !isNaN(numericValue) && numericValue >= 0
+            && (numericValue !== displayValue
+                || newValueType !== valueType
+                || expressionToSave !== displayExpression
+                || descriptionToSave !== displayDescription)
         ) {
             setDisplayValue(numericValue); // Optimistic update
             setValueType(newValueType); // Optimistic update
+            setDisplayExpression(expressionToSave); // Optimistic update
+            setDisplayDescription(descriptionToSave); // Optimistic update
 
             // Different intent for group-ref with subNode
             if (row.type === 'group-ref' && subNode) {
@@ -358,7 +404,9 @@ export function EditableConnectionRow({
                         intent: 'update-group-ref-value',
                         referenceId: row.id.toString(),
                         value: numericValue.toString(),
-                        valueType: newValueType
+                        valueType: newValueType,
+                        valueExpression: expressionToSave ?? '',
+                        valueDescription: descriptionToSave ?? ''
                     },
                     { method: 'post' }
                 );
@@ -368,13 +416,16 @@ export function EditableConnectionRow({
                         intent: 'update-connection-value',
                         connectionId: row.id.toString(),
                         value: numericValue.toString(),
-                        valueType: newValueType
+                        valueType: newValueType,
+                        valueExpression: expressionToSave ?? '',
+                        valueDescription: descriptionToSave ?? ''
                     },
                     { method: 'post' }
                 );
             }
         }
         setEditingField(null);
+        setShowDescriptionInput(false);
     };
 
     // Toggle showGroupNode
@@ -577,35 +628,105 @@ export function EditableConnectionRow({
 
         if (editingField === 'value') {
             return (
-                <input
-                    type='text'
-                    inputMode='decimal'
-                    value={editValue}
-                    onChange={e => setEditValue(e.target.value)}
-                    onBlur={handleValueSave}
-                    onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleValueSave();
-                        } else if (e.key === 'Escape') {
-                            setEditingField(null);
-                        }
-                    }}
-                    onClick={e => e.stopPropagation()}
-                    autoFocus
-                    className='w-20 px-2 py-0.5 border border-blue-300 rounded text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-500'
-                />
+                <div className='flex flex-col gap-1' onClick={e => e.stopPropagation()}>
+                    <div className='flex items-center gap-1'>
+                        <input
+                            type='text'
+                            value={editValue}
+                            onChange={e => setEditValue(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleValueSave();
+                                } else if (e.key === 'Escape') {
+                                    setEditingField(null);
+                                    setShowDescriptionInput(false);
+                                }
+                            }}
+                            autoFocus
+                            placeholder='Value or expression (e.g., 100+50)'
+                            className='w-40 px-2 py-0.5 border border-blue-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500'
+                        />
+                        <button
+                            type='button'
+                            onClick={() => setShowDescriptionInput(!showDescriptionInput)}
+                            className={`p-1 rounded hover:bg-gray-200 ${
+                                showDescriptionInput || displayDescription ? 'text-blue-600' : 'text-gray-400'
+                            }`}
+                            title={showDescriptionInput ? 'Hide description' : 'Add description'}
+                        >
+                            <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                                <path
+                                    strokeLinecap='round'
+                                    strokeLinejoin='round'
+                                    strokeWidth={2}
+                                    d='M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z'
+                                />
+                            </svg>
+                        </button>
+                        <button
+                            type='button'
+                            onClick={handleValueSave}
+                            className='p-1 text-green-600 hover:bg-green-100 rounded'
+                            title='Save'
+                        >
+                            <svg className='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                                <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M5 13l4 4L19 7' />
+                            </svg>
+                        </button>
+                    </div>
+                    {showDescriptionInput && (
+                        <input
+                            type='text'
+                            value={editDescription}
+                            onChange={e => setEditDescription(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleValueSave();
+                                } else if (e.key === 'Escape') {
+                                    setEditingField(null);
+                                    setShowDescriptionInput(false);
+                                }
+                            }}
+                            placeholder='Description (optional)'
+                            className='w-full px-2 py-0.5 border border-gray-300 rounded text-sm text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500'
+                        />
+                    )}
+                </div>
             );
         }
+
+        // Build tooltip showing expression and/or description
+        const tooltipParts: string[] = [];
+        if (canEditValue) {
+            tooltipParts.push('Click to edit');
+        }
+        if (displayExpression) {
+            tooltipParts.push(`Expression: ${displayExpression}`);
+        }
+        if (displayDescription) {
+            tooltipParts.push(`Note: ${displayDescription}`);
+        }
+        const tooltip = tooltipParts.join('\n');
 
         return (
             <span
                 onClick={handleValueClick}
-                className={`text-gray-600 font-mono text-sm w-20 text-right ${
+                className={`text-gray-600 font-mono text-sm w-20 text-right flex items-center justify-end gap-1 ${
                     canEditValue ? 'cursor-pointer hover:bg-blue-100 px-1 py-0.5 rounded transition-colors' : ''
                 }`}
-                title={canEditValue ? 'Click to change' : undefined}
+                title={tooltip || undefined}
             >
+                {(displayExpression || displayDescription) && (
+                    <svg className='w-3 h-3 text-blue-400 flex-shrink-0' fill='currentColor' viewBox='0 0 20 20'>
+                        <path
+                            fillRule='evenodd'
+                            d='M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z'
+                            clipRule='evenodd'
+                        />
+                    </svg>
+                )}
                 {formatLocaleNumber(displayValue, locale ?? undefined)}
                 {valueType === 'percent' ? '%' : ''}
             </span>

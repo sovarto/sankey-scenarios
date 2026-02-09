@@ -195,6 +195,10 @@ export const connections = pgTable('connections', {
     source: varchar({ length: 255 }),
     target: varchar({ length: 255 }),
     value: real().notNull(),
+    // Expression used to calculate the value (e.g., "100 + 50", "1000 * 0.5")
+    valueExpression: varchar({ length: 500 }),
+    // Optional description/documentation for the value
+    valueDescription: text(),
     // Value type: 'absolute' (default) = fixed number, 'percent' = percentage of total incoming to source node
     valueType: varchar({ length: 20 }).notNull().default('absolute'),
     // Placeholder type for auto-balancing: 'missing' (source provides Missing), 'remaining' (target receives Remaining)
@@ -242,6 +246,10 @@ export const scenarioGroups = pgTable('scenario_groups', {
     subNode: varchar({ length: 255 }), // null = connect to all, otherwise specific node name within the group
     // When subNode is set, these work like direct connections:
     value: real(), // custom value - if null, uses sum of group connections for that subNode
+    // Expression used to calculate the value (e.g., "100 + 50", "1000 * 0.5")
+    valueExpression: varchar({ length: 500 }),
+    // Optional description/documentation for the value
+    valueDescription: text(),
     // Value type: 'absolute' (default) = fixed number, 'percent' = percentage of total incoming to source node
     valueType: varchar({ length: 20 }).notNull().default('absolute'),
     autoValue: integer().notNull().default(0), // 0 = false, 1 = true (calculate as total incoming)
@@ -271,6 +279,8 @@ export const nodes = pgTable('nodes', {
     projectId: integer().notNull().references(() => projects.id, { onDelete: 'cascade' }),
     name: varchar({ length: 255 }).notNull(),
     value: real().notNull(),
+    // Expression used to calculate the value (e.g., "100 + 50", "1000 * 0.5")
+    valueExpression: varchar({ length: 500 }),
     description: text(),
     createdAt: timestamp().defaultNow().notNull(),
     updatedAt: timestamp().defaultNow().notNull()
