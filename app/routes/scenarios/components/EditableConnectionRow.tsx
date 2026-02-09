@@ -510,6 +510,7 @@ export function EditableConnectionRow({
                         options={allOptions}
                         placeholder='Select...'
                         onCancel={() => setEditingField(null)}
+                        autoFocus
                     />
                 </div>
             );
@@ -539,6 +540,7 @@ export function EditableConnectionRow({
                         options={allOptions}
                         placeholder='Select...'
                         onCancel={() => setEditingField(null)}
+                        autoFocus
                     />
                 </div>
             );

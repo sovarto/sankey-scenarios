@@ -9,6 +9,7 @@ export function NodeCombobox({
     placeholder,
     disabled,
     onCancel,
+    autoFocus = false,
 }: {
     value: ComboboxOption | null;
     onChange: (option: ComboboxOption | null) => void;
@@ -17,6 +18,7 @@ export function NodeCombobox({
     placeholder?: string;
     disabled?: boolean;
     onCancel?: () => void;
+    autoFocus?: boolean;
 }) {
     const [ inputValue, setInputValue ] = useState(value?.name ?? '');
     const [ isOpen, setIsOpen ] = useState(false);
@@ -53,13 +55,13 @@ export function NodeCombobox({
         setInputValue(value?.name ?? '');
     }, [ value ]);
 
-    // Auto-focus and select all text on mount
+    // Auto-focus and select all text on mount if requested
     useEffect(() => {
-        if (inputRef.current) {
+        if (autoFocus && inputRef.current) {
             inputRef.current.focus();
             inputRef.current.select();
         }
-    }, []);
+    }, [ autoFocus ]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newValue = e.target.value;
