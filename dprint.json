@@ -36,10 +36,7 @@
   "excludes": [
     "**/node_modules",
     "**/*-lock.json",
-    "public/81154fe671a4aba847c8ceba274446a1.js",
-    "public/c35b65af6999133003842d58a5337ca3.js",
-    "app/common/assets/cookiescript/*",
-    "other/arrays.ts"
+    "charts/*/templates/*.yaml"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.95.9.wasm",

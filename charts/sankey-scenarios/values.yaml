@@ -1,0 +1,83 @@
+replicaCount: 1
+
+image:
+  repository: "" # Set via CI or --set, e.g. harbor.sovarto.com/sankey-scenarios/sankey-scenarios
+  tag: "" # Set via CI or --set
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: sankey.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+# limits:
+#   cpu: 500m
+#   memory: 256Mi
+# requests:
+#   cpu: 100m
+#   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+env:
+  DATABASE_URL: "" # Required — set via secret or --set
+
+# Reference existing secrets for sensitive env vars
+envFromSecrets: []
+# - secretName: sankey-scenarios-db-app
+#   keys:
+#     - DATABASE_URL                    # env var name = secret key
+#     - key: uri                        # or map a secret key
+#       envName: DATABASE_URL           # to a different env var name
+
+# Run database migrations as an init container before the app starts
+migration:
+  enabled: true
+
+# Liveness and readiness probes
+probes:
+  liveness:
+    enabled: true
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
