@@ -38,20 +38,12 @@ spec:
             {{- end }}
             {{- range .Values.envFromSecrets }}
             {{- $secretName := .secretName }}
-            {{- range .keys }}
-            {{- if kindIs "map" . }}
-            - name: {{ .envName }}
+            {{- range $envName, $secretKey := .mapping }}
+            - name: {{ $envName }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
-                  key: {{ .key }}
-            {{- else }}
-            - name: {{ . }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $secretName }}
-                  key: {{ . }}
-            {{- end }}
+                  key: {{ $secretKey }}
             {{- end }}
             {{- end }}
       {{- end }}
@@ -76,20 +68,12 @@ spec:
             {{- end }}
             {{- range .Values.envFromSecrets }}
             {{- $secretName := .secretName }}
-            {{- range .keys }}
-            {{- if kindIs "map" . }}
-            - name: {{ .envName }}
+            {{- range $envName, $secretKey := .mapping }}
+            - name: {{ $envName }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
-                  key: {{ .key }}
-            {{- else }}
-            - name: {{ . }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $secretName }}
-                  key: {{ . }}
-            {{- end }}
+                  key: {{ $secretKey }}
             {{- end }}
             {{- end }}
           {{- if .Values.probes.liveness.enabled }}

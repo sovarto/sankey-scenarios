@@ -56,10 +56,8 @@ env:
 # Reference existing secrets for sensitive env vars
 envFromSecrets: []
 # - secretName: sankey-scenarios-db-app
-#   keys:
-#     - DATABASE_URL                    # env var name = secret key
-#     - key: uri                        # or map a secret key
-#       envName: DATABASE_URL           # to a different env var name
+#   mapping:
+#     DATABASE_URL: uri    # envVarName: secretKey
 
 # Run database migrations as an init container before the app starts
 migration:
