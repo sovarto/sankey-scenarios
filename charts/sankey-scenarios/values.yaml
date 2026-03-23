@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: "" # Set via CI or --set, e.g. harbor.sovarto.com/sankey-scenarios/sankey-scenarios
-  tag: "" # Set via CI or --set
+  repository: "" # Set via values override, e.g. harbor.sovarto.com/internal/sankey-scenarios
   pullPolicy: IfNotPresent
+  # tag defaults to Chart.appVersion (set by CI)
 
 imagePullSecrets: []
 
