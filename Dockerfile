@@ -15,7 +15,9 @@ WORKDIR /app
 RUN npm run build
 
 FROM node:20-alpine
-COPY ./package.json package-lock.json server.js /app/
+COPY ./package.json package-lock.json server.js drizzle.config.ts /app/
+COPY ./drizzle /app/drizzle
+COPY ./database /app/database
 COPY --from=production-dependencies-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/build /app/build
 WORKDIR /app

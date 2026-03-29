@@ -30,7 +30,7 @@ spec:
         - name: db-migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["npx", "drizzle-kit", "migrate"]
+          command: ["npx", "drizzle-kit", "migrate", "--config", "drizzle.config.ts"]
           env:
             {{- if .Values.env.DATABASE_URL }}
             - name: DATABASE_URL
