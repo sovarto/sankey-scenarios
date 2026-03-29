@@ -398,11 +398,26 @@ export function SankeyDiagram({
     const [ collapsedNodes, setCollapsedNodes ] = useState<Set<string>>(new Set());
     const [ hoveredLabel, setHoveredLabel ] = useState<number | null>(null);
 
+    // Track auto-fit iterations to prevent infinite render loops
+    const autoFitIterations = useRef(0);
+    const MAX_AUTO_FIT_ITERATIONS = 20;
+
+    // Reset iteration counter when flows or non-height config changes
+    const flowsKey = useMemo(() => flows.map(f => `${f.source}-${f.target}-${f.value}`).join('|'), [ flows ]);
+    useEffect(() => {
+        autoFitIterations.current = 0;
+    }, [ flowsKey, autoFitLabels ]);
+
     // Handle collision info from labels - used for auto-fit
     const handleCollisionInfo = useCallback((info: { compactCount: number; suggestedHeightIncrease: number }) => {
         if (autoFitLabels && onHeightChange && info.compactCount > 0 && info.suggestedHeightIncrease > 0) {
+            if (autoFitIterations.current >= MAX_AUTO_FIT_ITERATIONS) {
+                return; // Stop iterating to prevent infinite loop
+            }
+            autoFitIterations.current++;
             const currentHeight = config.height || containerSize?.height || 400;
-            const newHeight = Math.min(2000, currentHeight + info.suggestedHeightIncrease);
+            const increase = autoFitIterations.current > 10 ? 50 : info.suggestedHeightIncrease;
+            const newHeight = Math.min(2000, currentHeight + increase);
             if (newHeight > currentHeight) {
                 onHeightChange(newHeight);
             }
