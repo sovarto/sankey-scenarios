@@ -40,10 +40,13 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     let details = 'An unexpected error occurred.';
     let stack: string | undefined;
 
+    const showDebug = import.meta.env.DEV
+        || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug'));
+
     if (isRouteErrorResponse(error)) {
         message = error.status === 404 ? '404' : 'Error';
         details = error.status === 404 ? 'The requested page could not be found.' : error.statusText || details;
-    } else if (import.meta.env.DEV && error && error instanceof Error) {
+    } else if (showDebug && error && error instanceof Error) {
         details = error.message;
         stack = error.stack;
     }
