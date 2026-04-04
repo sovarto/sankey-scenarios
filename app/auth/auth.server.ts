@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { redirect } from 'react-router';
 import { hashPassword, verifyPassword, generateToken } from './password.server';
 import { createSession, createSessionCookie, deleteSession, getSession, getSessionCookie, createLogoutCookie, deleteAllUserSessions } from './session.server';
+import type { OidcUserInfo } from './oidc.server';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -78,6 +79,10 @@ export async function login(
 
     if (!user) {
         return { success: false, error: 'Invalid email or password' };
+    }
+
+    if (!user.passwordHash) {
+        return { success: false, error: 'This account uses SSO. Please sign in with the SSO provider.' };
     }
 
     const validPassword = await verifyPassword(password, user.passwordHash);
@@ -247,4 +252,115 @@ export async function resetPassword(
     await deleteAllUserSessions(user.id);
 
     return { success: true };
+}
+
+export async function loginOrCreateOidcUser(
+    oidcUser: OidcUserInfo,
+): Promise<{ success: true; sessionCookie: string } | { success: false; error: string }> {
+    const db = database();
+
+    // First try to find by OIDC subject
+    let user = await db.query.users.findFirst({
+        where: eq(schema.users.oidcSubject, oidcUser.subject),
+        with: {
+            userRoles: {
+                with: { role: true }
+            }
+        }
+    });
+
+    if (!user) {
+        // Try to find existing user by email and link the OIDC identity
+        user = await db.query.users.findFirst({
+            where: eq(schema.users.email, oidcUser.email.toLowerCase()),
+            with: {
+                userRoles: {
+                    with: { role: true }
+                }
+            }
+        });
+
+        if (user) {
+            // Link the OIDC subject to the existing account
+            await db.update(schema.users).set({
+                oidcSubject: oidcUser.subject,
+                updatedAt: new Date()
+            }).where(eq(schema.users.id, user.id));
+        }
+    }
+
+    if (!user) {
+        // Auto-provision a new user from OIDC
+        const isFirstUser = (await db.select({ id: schema.users.id }).from(schema.users).limit(1)).length === 0;
+
+        const [ newUser ] = await db.insert(schema.users).values({
+            email: oidcUser.email.toLowerCase(),
+            passwordHash: null,
+            name: oidcUser.name,
+            status: isFirstUser ? 'active' : 'pending',
+            oidcSubject: oidcUser.subject,
+        }).returning();
+
+        // Get or create the member role
+        let memberRole = await db.query.roles.findFirst({
+            where: eq(schema.roles.name, 'member')
+        });
+
+        if (!memberRole) {
+            [ memberRole ] = await db.insert(schema.roles).values({
+                name: 'member',
+                description: 'Can work with diagrams'
+            }).returning();
+        }
+
+        await db.insert(schema.userRoles).values({
+            userId: newUser.id,
+            roleId: memberRole.id
+        });
+
+        if (isFirstUser) {
+            let adminRole = await db.query.roles.findFirst({
+                where: eq(schema.roles.name, 'admin')
+            });
+
+            if (!adminRole) {
+                [ adminRole ] = await db.insert(schema.roles).values({
+                    name: 'admin',
+                    description: 'Can manage users and accept signups'
+                }).returning();
+            }
+
+            await db.insert(schema.userRoles).values({
+                userId: newUser.id,
+                roleId: adminRole.id
+            });
+        }
+
+        // Re-fetch the user with roles
+        user = await db.query.users.findFirst({
+            where: eq(schema.users.id, newUser.id),
+            with: {
+                userRoles: {
+                    with: { role: true }
+                }
+            }
+        });
+
+        if (!user) {
+            return { success: false, error: 'Failed to create user account' };
+        }
+    }
+
+    if (user.status === 'pending') {
+        return { success: false, error: 'Your account is pending approval by an administrator' };
+    }
+
+    if (user.status === 'blocked') {
+        return { success: false, error: 'Your account has been blocked. Please contact an administrator' };
+    }
+
+    const sessionId = await createSession(user.id);
+    const sessionCookie = createSessionCookie(sessionId);
+
+    return { success: true, sessionCookie };
 }

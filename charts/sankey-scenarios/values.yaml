@@ -53,6 +53,13 @@ affinity: {}
 env:
   DATABASE_URL: "" # Required — set via secret or --set
 
+# OIDC / SSO configuration (optional)
+oidc:
+  issuerUrl: ""      # e.g. https://auth.example.com/realms/my-realm
+  clientId: ""
+  clientSecret: ""   # Leave empty for public clients
+  scopes: "openid email profile"
+
 # Reference existing secrets for sensitive env vars
 envFromSecrets: []
 # - secretName: sankey-scenarios-db-app

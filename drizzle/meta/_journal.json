@@ -141,6 +141,13 @@
       "when": 1770595993524,
       "tag": "0019_harsh_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1775338833023,
+      "tag": "0020_eminent_mantis",
+      "breakpoints": true
     }
   ]
 }
