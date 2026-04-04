@@ -136,7 +136,10 @@ export async function handleOidcCallback(
 
     // If we still lack name or email, call userinfo
     if (!name || !email) {
-        const userinfo = await client.fetchUserInfo(config, tokens.access_token!, claims.sub);
+        if (!tokens.access_token) {
+            throw new Error('OIDC provider did not return an access token. Cannot fetch user info.');
+        }
+        const userinfo = await client.fetchUserInfo(config, tokens.access_token, claims.sub);
         name = name || (userinfo.name as string | undefined) || (userinfo.preferred_username as string | undefined) || claims.sub;
         email = email || (userinfo.email as string | undefined) || '';
     }

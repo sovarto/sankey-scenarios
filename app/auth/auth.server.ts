@@ -356,6 +356,11 @@ export async function loginOrCreateOidcUser(
         return { success: false, error: 'Your account is pending approval by an administrator' };
     }
 
+    // When group mapping is active, the OIDC group membership is the access gate.
+    // A previously-blocked user whose groups now qualify should be allowed in
+    // (their status was already set to 'active' above in the sync block).
+    // When group mapping is NOT configured (resolvedRoles === undefined),
+    // honour the manual block set by an admin.
     if (user.status === 'blocked' && resolvedRoles === undefined) {
         return { success: false, error: 'Your account has been blocked. Please contact an administrator' };
     }
