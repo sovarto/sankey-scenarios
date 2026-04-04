@@ -59,6 +59,15 @@ oidc:
   clientId: ""
   clientSecret: ""   # Leave empty for public clients
   scopes: "openid email profile"
+  # Group-based role mapping (comma-separated OIDC group names)
+  # When configured, only users in listed groups may access the app.
+  # Users in admin groups receive admin + member roles.
+  # Users in member groups receive the member role.
+  # Users not in any listed group are denied access.
+  adminGroups: ""    # e.g. "sankey-admins,platform-admins"
+  memberGroups: ""   # e.g. "sankey-users,engineering"
+  # The OIDC claim that contains group names (default: "groups")
+  groupsClaim: ""
 
 # Reference existing secrets for sensitive env vars
 envFromSecrets: []

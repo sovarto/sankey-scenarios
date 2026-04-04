@@ -82,6 +82,18 @@ spec:
             - name: OIDC_SCOPES
               value: {{ .Values.oidc.scopes | quote }}
             {{- end }}
+            {{- if .Values.oidc.adminGroups }}
+            - name: OIDC_ADMIN_GROUPS
+              value: {{ .Values.oidc.adminGroups | quote }}
+            {{- end }}
+            {{- if .Values.oidc.memberGroups }}
+            - name: OIDC_MEMBER_GROUPS
+              value: {{ .Values.oidc.memberGroups | quote }}
+            {{- end }}
+            {{- if .Values.oidc.groupsClaim }}
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ .Values.oidc.groupsClaim | quote }}
+            {{- end }}
             {{- range .Values.envFromSecrets }}
             {{- $secretName := .secretName }}
             {{- range $envName, $secretKey := .mapping }}
