@@ -9,10 +9,12 @@ import { boolean, integer, pgTable, real, text, timestamp, unique, varchar } fro
 export const users = pgTable('users', {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
     email: varchar({ length: 255 }).notNull().unique(),
-    passwordHash: varchar({ length: 255 }).notNull(),
+    passwordHash: varchar({ length: 255 }), // Null for OIDC-only users
     name: varchar({ length: 255 }).notNull(),
     // Status: 'pending' (awaiting admin approval), 'active', 'blocked'
     status: varchar({ length: 20 }).notNull().default('pending'),
+    // OIDC subject identifier (unique ID from the OIDC provider)
+    oidcSubject: varchar({ length: 255 }),
     // Locale preferences (BCP 47 language tags, e.g., 'en-US', 'de-DE')
     displayLocale: varchar({ length: 35 }), // For UI language
     regionalLocale: varchar({ length: 35 }), // For number/date formatting

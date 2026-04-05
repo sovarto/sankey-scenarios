@@ -1,6 +1,7 @@
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/login';
 import { login, getCurrentUser } from '~/auth/auth.server';
+import { isOidcEnabled } from '~/auth/oidc.server';
 
 export function meta({}: Route.MetaArgs) {
     return [ { title: 'Login - Sankey Scenarios' } ];
@@ -12,7 +13,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (user) {
         throw redirect('/');
     }
-    return {};
+
+    const url = new URL(request.url);
+    const oidcError = url.searchParams.get('error');
+
+    return { oidcEnabled: isOidcEnabled(), oidcError };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -41,7 +46,10 @@ export async function action({ request }: Route.ActionArgs) {
     });
 }
 
-export default function Login({ actionData }: Route.ComponentProps) {
+export default function Login({ loaderData, actionData }: Route.ComponentProps) {
+    const { oidcEnabled, oidcError } = loaderData;
+    const error = actionData?.error || oidcError;
+
     return (
         <div className='min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8'>
             <div className='sm:mx-auto sm:w-full sm:max-w-md'>
@@ -51,11 +59,33 @@ export default function Login({ actionData }: Route.ComponentProps) {
 
             <div className='mt-8 sm:mx-auto sm:w-full sm:max-w-md'>
                 <div className='bg-white py-8 px-4 shadow rounded-lg sm:px-10'>
-                    <Form method='post' className='space-y-6'>
-                        {actionData?.error && (
-                            <div className='p-4 bg-red-50 text-red-700 rounded-md text-sm'>{actionData.error}</div>
-                        )}
+                    {error && (
+                        <div className='mb-6 p-4 bg-red-50 text-red-700 rounded-md text-sm'>{error}</div>
+                    )}
 
+                    {oidcEnabled && (
+                        <>
+                            <a
+                                href='/auth/oidc'
+                                className='w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                            >
+                                Sign in with SSO
+                            </a>
+
+                            <div className='mt-6'>
+                                <div className='relative'>
+                                    <div className='absolute inset-0 flex items-center'>
+                                        <div className='w-full border-t border-gray-300' />
+                                    </div>
+                                    <div className='relative flex justify-center text-sm'>
+                                        <span className='px-2 bg-white text-gray-500'>Or continue with email</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    <Form method='post' className={oidcEnabled ? 'mt-6 space-y-6' : 'space-y-6'}>
                         <div>
                             <label htmlFor='email' className='block text-sm font-medium text-gray-700'>
                                 Email address

@@ -10,6 +10,8 @@ export default [
     route('logout', 'routes/auth/logout.tsx'),
     route('forgot-password', 'routes/auth/forgot-password.tsx'),
     route('reset-password', 'routes/auth/reset-password.tsx'),
+    route('auth/oidc', 'routes/auth/oidc.ts'),
+    route('auth/oidc/callback', 'routes/auth/oidc-callback.ts'),
 
     // API routes
     route('api/realtime', 'routes/api/realtime.ts'),
