@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/edit';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 import { requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
@@ -65,9 +66,12 @@ export default function EditProject({ loaderData, actionData }: Route.ComponentP
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to={`/projects/${project.id}`} className='text-sm text-gray-500 hover:text-gray-700'>
-                        ← Back to Project
-                    </Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: 'Projects', to: '/projects' },
+                        { label: project.name, to: `/projects/${project.id}` },
+                        { label: 'Edit' },
+                    ]} />
                     <h1 className='text-3xl font-bold text-gray-900 mt-2'>Edit Project</h1>
                 </div>
             </header>

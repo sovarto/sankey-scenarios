@@ -1,9 +1,10 @@
 import { eq } from 'drizzle-orm';
-import { Form, Link, redirect, useNavigation } from 'react-router';
+import { Form, redirect, useNavigation } from 'react-router';
 import type { Route } from './+types/view';
 import { requireAdmin } from '~/auth/auth.server';
 import { hashPassword, generateToken } from '~/auth/password.server';
 import { deleteAllUserSessions } from '~/auth/session.server';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -170,7 +171,11 @@ export default function UserView({ loaderData, actionData }: Route.ComponentProp
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to='/admin/users' className='text-sm text-gray-500 hover:text-gray-700'>← Back to Users</Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: 'User Management', to: '/admin/users' },
+                        { label: user.name },
+                    ]} />
                     <div className='flex items-center justify-between mt-2'>
                         <div>
                             <h1 className='text-3xl font-bold text-gray-900'>{user.name}</h1>

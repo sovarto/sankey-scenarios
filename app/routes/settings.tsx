@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
-import { Form, Link } from 'react-router';
+import { Form } from 'react-router';
 import type { Route } from './+types/settings';
 import { requireMember } from '~/auth/auth.server';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 
@@ -76,7 +77,10 @@ export default function Settings({ loaderData, actionData }: Route.ComponentProp
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-3xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to='/' className='text-sm text-gray-500 hover:text-gray-700'>← Back</Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: 'Settings' },
+                    ]} />
                     <h1 className='text-3xl font-bold text-gray-900 mt-2'>Settings</h1>
                 </div>
             </header>
