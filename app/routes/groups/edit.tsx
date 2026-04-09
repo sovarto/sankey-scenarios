@@ -3,8 +3,11 @@ import { useState } from 'react';
 import { Form, redirect } from 'react-router';
 import type { Route } from './+types/edit';
 import { Breadcrumbs } from '~/components/Breadcrumbs';
+import { AddGroupConnectionForm } from './components/AddGroupConnectionForm';
+import { GroupConnectionList } from './components/GroupConnectionList';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
+import { InlineEditableText } from '~/routes/scenarios/components/InlineEditableText';
 import { requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
@@ -19,13 +22,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Invalid group ID', { status: 400 });
     }
 
-    const { project } = await requireProjectWriteAccess(request, projectId);
+    const access = await requireProjectWriteAccess(request, projectId);
     const db = database();
 
     const group = await db.query.groups.findFirst({
         where: and(eq(schema.groups.id, groupId), eq(schema.groups.projectId, projectId)),
         with: {
-            connections: true
+            connections: {
+                orderBy: (connections, { asc }) => [ asc(connections.displayOrder) ]
+            }
         }
     });
 
@@ -33,7 +38,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         throw new Response('Group not found', { status: 404 });
     }
 
-    return { project, group };
+    return { project: access.project, group, userLocale: access.user.regionalLocale };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -57,24 +62,31 @@ export async function action({ request, params }: Route.ActionArgs) {
         return redirect(`/projects/${projectId}/groups`);
     }
 
-    if (intent === 'update') {
+    if (intent === 'update-name') {
         const name = formData.get('name');
-        const description = formData.get('description');
-
         if (typeof name !== 'string' || !name.trim()) {
             return { error: 'Group name is required' };
         }
-
         await db.update(schema.groups).set({
             name: name.trim(),
+            updatedAt: new Date()
+        }).where(and(eq(schema.groups.id, groupId), eq(schema.groups.projectId, projectId)));
+        return { success: true };
+    }
+
+    if (intent === 'update-description') {
+        const description = formData.get('description');
+        await db.update(schema.groups).set({
             description: typeof description === 'string' ? description.trim() || null : null,
             updatedAt: new Date()
         }).where(and(eq(schema.groups.id, groupId), eq(schema.groups.projectId, projectId)));
+        return { success: true };
     }
 
     if (intent === 'add-connection') {
         const node = formData.get('node');
         const value = formData.get('value');
+        const valueExpression = formData.get('valueExpression');
 
         if (typeof node !== 'string' || !node.trim() || typeof value !== 'string') {
             return { error: 'Node name and value are required' };
@@ -85,28 +97,105 @@ export async function action({ request, params }: Route.ActionArgs) {
             return { error: 'Value must be a positive number' };
         }
 
-        // Store the node name in both source and target for flexibility
-        // When used in a scenario, one will be replaced by the connecting node
+        // Get next display order
+        const existing = await db.query.connections.findMany({
+            where: eq(schema.connections.groupId, groupId),
+            columns: { displayOrder: true }
+        });
+        const maxOrder = existing.reduce((max, c) => Math.max(max, c.displayOrder), -1);
+
         await db.insert(schema.connections).values({
             groupId,
             source: node.trim(),
             target: node.trim(),
-            value: numValue
+            value: numValue,
+            valueExpression: typeof valueExpression === 'string' && valueExpression.trim()
+                ? valueExpression.trim()
+                : null,
+            displayOrder: maxOrder + 1
         });
+
+        await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
+        return { success: true };
+    }
+
+    if (intent === 'update-connection-name') {
+        const connectionId = formData.get('connectionId');
+        const name = formData.get('name');
+
+        if (typeof connectionId !== 'string' || typeof name !== 'string' || !name.trim()) {
+            return { error: 'Connection ID and name are required' };
+        }
+
+        const id = parseInt(connectionId, 10);
+        await db.update(schema.connections).set({
+            source: name.trim(),
+            target: name.trim()
+        }).where(and(eq(schema.connections.id, id), eq(schema.connections.groupId, groupId)));
+
+        await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
+        return { success: true };
+    }
+
+    if (intent === 'update-connection-value') {
+        const connectionId = formData.get('connectionId');
+        const value = formData.get('value');
+        const valueExpression = formData.get('valueExpression');
+        const valueDescription = formData.get('valueDescription');
+
+        if (typeof connectionId !== 'string' || typeof value !== 'string') {
+            return { error: 'Connection ID and value are required' };
+        }
+
+        const id = parseInt(connectionId, 10);
+        const numValue = parseFloat(value);
+        if (isNaN(numValue) || numValue <= 0) {
+            return { error: 'Value must be a positive number' };
+        }
+
+        await db.update(schema.connections).set({
+            value: numValue,
+            valueExpression: typeof valueExpression === 'string' && valueExpression ? valueExpression : null,
+            valueDescription: typeof valueDescription === 'string' && valueDescription ? valueDescription : null
+        }).where(and(eq(schema.connections.id, id), eq(schema.connections.groupId, groupId)));
+
+        await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
+        return { success: true };
     }
 
     if (intent === 'delete-connection') {
         const connectionId = formData.get('connectionId');
         if (typeof connectionId === 'string') {
-            await db.delete(schema.connections).where(eq(schema.connections.id, parseInt(connectionId, 10)));
+            await db.delete(schema.connections).where(
+                and(eq(schema.connections.id, parseInt(connectionId, 10)), eq(schema.connections.groupId, groupId))
+            );
+            await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
         }
+        return { success: true };
+    }
+
+    if (intent === 'reorder-connections') {
+        const orderDataStr = formData.get('orderData');
+        if (typeof orderDataStr !== 'string') {
+            return { error: 'Order data is required' };
+        }
+
+        const orderData: Array<{ id: number; order: number }> = JSON.parse(orderDataStr);
+        for (const item of orderData) {
+            await db.update(schema.connections).set({ displayOrder: item.order }).where(
+                and(eq(schema.connections.id, item.id), eq(schema.connections.groupId, groupId))
+            );
+        }
+
+        await db.update(schema.groups).set({ updatedAt: new Date() }).where(eq(schema.groups.id, groupId));
+        return { success: true };
     }
 
     return { success: true };
 }
 
 export default function EditGroup({ loaderData, actionData }: Route.ComponentProps) {
-    const { project, group } = loaderData;
+    const { project, group, userLocale } = loaderData;
     const [ showAddConnection, setShowAddConnection ] = useState(false);
 
     return (
@@ -120,64 +209,39 @@ export default function EditGroup({ loaderData, actionData }: Route.ComponentPro
                         { label: group.name, to: `/projects/${project.id}/groups/${group.id}` },
                         { label: 'Edit' },
                     ]} />
-                    <h1 className='text-3xl font-bold text-gray-900 mt-2'>Edit Group</h1>
+                    <div className='mt-2'>
+                        <InlineEditableText
+                            value={group.name}
+                            name='name'
+                            className='text-3xl font-bold text-gray-900'
+                            inputClassName='text-3xl font-bold text-gray-900 w-full'
+                            as='h1'
+                        />
+                        <InlineEditableText
+                            value={group.description ?? ''}
+                            name='description'
+                            placeholder='Click to add description...'
+                            className='text-gray-600 mt-1'
+                            inputClassName='text-gray-600 w-full'
+                            as='p'
+                        />
+                        <p className='text-sm text-gray-500 mt-1'>in {project.name}</p>
+                    </div>
                 </div>
             </header>
 
             <main className='max-w-4xl mx-auto px-4 py-8 sm:px-6 lg:px-8 space-y-8'>
                 {actionData?.error && <div className='p-4 bg-red-50 text-red-700 rounded-md'>{actionData.error}</div>}
 
-                {/* Basic Info */}
-                <section className='bg-white rounded-lg shadow p-6'>
-                    <h2 className='text-xl font-semibold text-gray-900 mb-4'>Basic Information</h2>
-                    <Form method='post'>
-                        <input type='hidden' name='intent' value='update' />
-                        <div className='grid grid-cols-1 gap-4'>
-                            <div>
-                                <label htmlFor='name' className='block text-sm font-medium text-gray-700 mb-1'>
-                                    Name *
-                                </label>
-                                <input
-                                    type='text'
-                                    id='name'
-                                    name='name'
-                                    required
-                                    defaultValue={group.name}
-                                    className='w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500'
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor='description' className='block text-sm font-medium text-gray-700 mb-1'>
-                                    Description
-                                </label>
-                                <textarea
-                                    id='description'
-                                    name='description'
-                                    rows={2}
-                                    defaultValue={group.description ?? ''}
-                                    className='w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500'
-                                />
-                            </div>
-                        </div>
-                        <div className='mt-4 flex justify-end'>
-                            <button
-                                type='submit'
-                                className='px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors'
-                            >
-                                Save Changes
-                            </button>
-                        </div>
-                    </Form>
-                </section>
-
                 {/* Connections */}
                 <section className='bg-white rounded-lg shadow p-6'>
                     <div className='flex items-center justify-between mb-4'>
                         <div>
-                            <h2 className='text-xl font-semibold text-gray-900'>Connections</h2>
+                            <h2 className='text-xl font-semibold text-gray-900'>
+                                Connections ({group.connections.length})
+                            </h2>
                             <p className='text-sm text-gray-600'>
-                                Define nodes and their values. When used in a scenario, these can act as either sources
-                                or targets.
+                                Define nodes and their values. Click names or values to edit inline. Drag to reorder.
                             </p>
                         </div>
                         <button
@@ -190,70 +254,12 @@ export default function EditGroup({ loaderData, actionData }: Route.ComponentPro
                     </div>
 
                     {showAddConnection && (
-                        <Form method='post' className='mb-6 p-4 bg-gray-50 rounded-md'>
-                            <input type='hidden' name='intent' value='add-connection' />
-                            <div className='grid grid-cols-2 gap-4'>
-                                <div>
-                                    <label className='block text-sm font-medium text-gray-700 mb-1'>Node Name</label>
-                                    <input
-                                        type='text'
-                                        name='node'
-                                        required
-                                        placeholder='Taxes'
-                                        className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
-                                    />
-                                    <p className='text-xs text-gray-500 mt-1'>
-                                        This will become source or target depending on how the group is used
-                                    </p>
-                                </div>
-                                <div>
-                                    <label className='block text-sm font-medium text-gray-700 mb-1'>Value</label>
-                                    <input
-                                        type='number'
-                                        name='value'
-                                        required
-                                        min='0.01'
-                                        step='0.01'
-                                        placeholder='450'
-                                        className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm'
-                                    />
-                                </div>
-                            </div>
-                            <div className='mt-4 flex justify-end'>
-                                <button
-                                    type='submit'
-                                    className='px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm'
-                                >
-                                    Add
-                                </button>
-                            </div>
-                        </Form>
+                        <div className='mb-6'>
+                            <AddGroupConnectionForm locale={userLocale} />
+                        </div>
                     )}
 
-                    {group.connections.length === 0
-                        ? <p className='text-gray-500 text-sm'>No connections yet.</p>
-                        : (
-                            <div className='space-y-2'>
-                                {group.connections.map(conn => (
-                                    <div
-                                        key={conn.id}
-                                        className='flex items-center justify-between p-3 bg-gray-50 rounded-md'
-                                    >
-                                        <span className='text-gray-900'>
-                                            {conn.source || conn.target}:{' '}
-                                            <span className='font-medium'>{conn.value}</span>
-                                        </span>
-                                        <Form method='post'>
-                                            <input type='hidden' name='intent' value='delete-connection' />
-                                            <input type='hidden' name='connectionId' value={conn.id} />
-                                            <button type='submit' className='text-red-600 hover:text-red-800 text-sm'>
-                                                Remove
-                                            </button>
-                                        </Form>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                    <GroupConnectionList connections={group.connections} locale={userLocale} />
                 </section>
 
                 {/* Delete Group */}

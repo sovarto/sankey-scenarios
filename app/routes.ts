@@ -38,7 +38,6 @@ export default [
         route(':projectId/groups', 'routes/groups/index.tsx'),
         route(':projectId/groups/new', 'routes/groups/new.tsx'),
         route(':projectId/groups/:groupId', 'routes/groups/view.tsx'),
-        route(':projectId/groups/:groupId/edit', 'routes/groups/edit.tsx'),
 
         // Nodes nested under projects
         route(':projectId/nodes', 'routes/nodes/index.tsx'),
