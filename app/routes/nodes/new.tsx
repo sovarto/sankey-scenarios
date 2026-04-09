@@ -1,5 +1,6 @@
 import { Form, Link, redirect } from 'react-router';
 import type { Route } from './+types/new';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { database } from '~/database/context';
 import * as schema from '~/database/schema';
 import { requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
@@ -55,11 +56,13 @@ export default function NewNode({ loaderData, actionData }: Route.ComponentProps
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to={`/projects/${project.id}/nodes`} className='text-sm text-gray-500 hover:text-gray-700'>
-                        ← Back to Nodes
-                    </Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: project.name, to: `/projects/${project.id}` },
+                        { label: 'Nodes', to: `/projects/${project.id}/nodes` },
+                        { label: 'New Node' },
+                    ]} />
                     <h1 className='text-3xl font-bold text-gray-900 mt-2'>New Node</h1>
-                    <p className='text-gray-600'>in {project.name}</p>
                 </div>
             </header>
 

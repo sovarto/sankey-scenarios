@@ -3,6 +3,7 @@ import { Link, useLoaderData } from 'react-router';
 import type { Route } from './+types/view';
 import { loadScenarioView } from './edit/loader.server';
 import { SankeyDiagram } from '~/components/sankey';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { requireProjectAccess, parseProjectId } from '~/utils/project-ownership.server';
 
 export function meta({ data }: Route.MetaArgs) {
@@ -69,9 +70,11 @@ export default function ViewScenario({}: Route.ComponentProps) {
         <div className='h-screen flex flex-col bg-gray-50'>
             <header className='bg-white shadow-sm flex-shrink-0'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to={`/projects/${project.id}`} className='text-sm text-gray-500 hover:text-gray-700'>
-                        ← Back to {project.name}
-                    </Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: project.name, to: `/projects/${project.id}` },
+                        { label: scenario.name },
+                    ]} />
                     <div className='mt-2 flex items-center justify-between'>
                         <div>
                             <h1 className='text-3xl font-bold text-gray-900'>{scenario.name}</h1>

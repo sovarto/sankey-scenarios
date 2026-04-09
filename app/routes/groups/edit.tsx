@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { useState } from 'react';
-import { Form, Link, redirect } from 'react-router';
+import { Form, redirect } from 'react-router';
 import type { Route } from './+types/edit';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { AddGroupConnectionForm } from './components/AddGroupConnectionForm';
 import { GroupConnectionList } from './components/GroupConnectionList';
 import { database } from '~/database/context';
@@ -201,12 +202,13 @@ export default function EditGroup({ loaderData, actionData }: Route.ComponentPro
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link
-                        to={`/projects/${project.id}/groups/${group.id}`}
-                        className='text-sm text-gray-500 hover:text-gray-700'
-                    >
-                        ← Back to Group
-                    </Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: project.name, to: `/projects/${project.id}` },
+                        { label: 'Groups', to: `/projects/${project.id}/groups` },
+                        { label: group.name, to: `/projects/${project.id}/groups/${group.id}` },
+                        { label: 'Edit' },
+                    ]} />
                     <div className='mt-2'>
                         <InlineEditableText
                             value={group.name}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import type { Route } from './+types/index';
 import { requireAdmin } from '~/auth/auth.server';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { database } from '~/database/context';
 
 export function meta({}: Route.MetaArgs) {
@@ -81,7 +82,10 @@ export default function UsersIndex({ loaderData }: Route.ComponentProps) {
         <div className='min-h-screen bg-gray-50'>
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
-                    <Link to='/' className='text-sm text-gray-500 hover:text-gray-700'>← Back to Home</Link>
+                    <Breadcrumbs items={[
+                        { label: 'Home', to: '/' },
+                        { label: 'User Management' },
+                    ]} />
                     <h1 className='text-3xl font-bold text-gray-900 mt-2'>User Management</h1>
                 </div>
             </header>

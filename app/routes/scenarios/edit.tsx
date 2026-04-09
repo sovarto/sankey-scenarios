@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Form, Link, useFetcher, useLoaderData, useActionData, useRevalidator } from 'react-router';
+import { Form, useFetcher, useLoaderData, useActionData, useRevalidator } from 'react-router';
 import type { Route } from './+types/edit';
 import { AddConnectionForm, ConnectionList, DiagramSection, InlineEditableText, LocalNodesPanel } from './components';
 import type { ConnectionRowData } from './components/types';
 import { handleUpdateName, handleUpdateDescription, handleUpdateAutoFitLabels, handleDeleteScenario, handleAddConnection, handleDeleteConnection, handleUpdateConnectionValue, handleUpdateConnectionPlaceholderType, handleUpdateConnectionAutoValue, handleUpdateConnectionSource, handleUpdateConnectionTarget, handleDeleteGroupReference, handleDeleteNodeReference, handleUpdateGroupRefShowNode, handleUpdateGroupRefSubNode, handleUpdateGroupRefValue, handleUpdateGroupRefAutoValue, handleUpdateGroupRefPlaceholderType, handleUpdateLocalNode, handleReorderConnections, handlePromoteToProjectNode, handleAddLocalNodesToGroup, handleAddLocalNodesToNewGroup, handleUpdateGroupNodeOrder, handleResetGroupNodeOrder } from './edit/actions.server';
 import { loadScenarioView } from './edit/loader.server';
+import { Breadcrumbs } from '~/components/Breadcrumbs';
 import { database } from '~/database/context';
 import { requireProjectAccess, requireProjectWriteAccess, parseProjectId } from '~/utils/project-ownership.server';
 import { broadcastScenarioUpdate } from '~/utils/realtime.server';
@@ -292,9 +293,12 @@ export default function ViewScenario({}: Route.ComponentProps) {
             <header className='bg-white shadow-sm'>
                 <div className='max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8'>
                     <div className='flex items-center justify-between'>
-                        <Link to={`/projects/${project.id}`} className='text-sm text-gray-500 hover:text-gray-700'>
-                            ← Back to {project.name}
-                        </Link>
+                        <Breadcrumbs items={[
+                            { label: 'Home', to: '/' },
+                            { label: project.name, to: `/projects/${project.id}` },
+                            { label: scenario.name, to: `/projects/${project.id}/scenarios/${scenario.id}` },
+                            { label: 'Edit' },
+                        ]} />
                         <div className='flex items-center gap-4'>
                             <ActiveCollaborators users={activeUsers} currentUserId={currentUserId} />
                             <ConnectionStatus isConnected={isConnected} />
